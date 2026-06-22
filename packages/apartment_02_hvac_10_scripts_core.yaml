@@ -1,0 +1,899 @@
+script:
+
+  # ==========================================================
+  # Script 0
+  # Applique un état OFF homogène dès qu'un stop_owner est actif.
+  #
+  # Rôle :
+  # - couper salon / clim réelle / radiateurs
+  # - utiliser la même logique OFF pour tous les owners
+  #
+  # Important :
+  # - ce script peut être appelé même si cmd_in_progress est déjà ON
+  # - s'il "prend" lui-même le tag cmd_in_progress, il le relâche en fin
+  # - s'il trouve le tag déjà ON, il ne le relâche pas à la fin
+  # - on évite les appels OFF inutiles si l'équipement est déjà arrêté
+  # - on évite aussi les appels inutiles si une entité est indisponible
+  # ==========================================================
+  apartment_2_apply_off_state_stop_owner:
+    alias: "Apartment 2 - Apply OFF state for stop owner"
+    mode: restart
+    icon: mdi:power
+
+    sequence:
+      - variables:
+          invalid_states:
+            - "unknown"
+            - "unavailable"
+            - "none"
+            - ""
+
+          cmd_was_off_at_entry: "{{ is_state('input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress', 'off') }}"
+
+          salon_hvac_mode: "{{ states('climate.thermostat_salon_appart_2') }}"
+          real_clim_hvac_mode: "{{ states('climate.clim_appart_2') }}"
+          salon_hvac_exploitable: "{{ salon_hvac_mode not in invalid_states }}"
+          real_clim_hvac_exploitable: "{{ real_clim_hvac_mode not in invalid_states }}"
+
+      # Si le tag HA n'était pas déjà ON à l'entrée,
+      # ce script le prend temporairement.
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ cmd_was_off_at_entry }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+
+      # Salon OFF uniquement si nécessaire et si exploitable
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (salon_hvac_exploitable | bool(false)) and salon_hvac_mode != 'off' }}"
+            sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: climate.thermostat_salon_appart_2
+                data:
+                  hvac_mode: "off"
+
+      # Clim réelle OFF uniquement si nécessaire et si exploitable
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (real_clim_hvac_exploitable | bool(false)) and real_clim_hvac_mode != 'off' }}"
+            sequence:
+              - action: climate.turn_off
+                target:
+                  entity_id: climate.clim_appart_2
+
+      - delay: "00:00:02"
+
+      # Si le script avait pris lui-même le tag à l'entrée,
+      # il le relâche à la fin.
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ cmd_was_off_at_entry }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+
+
+  # ==========================================================
+  # Script 1
+  # Réévalue stop_owner puis, si aucun owner n'est actif,
+  # décide s'il faut rééquilibrer le système.
+  #
+  # Rôle :
+  # - recalculer l'arbitre d'arrêt
+  # - si stop_owner != none : appliquer OFF homogène et sortir
+  # - si stop_owner == none : faire un check-up complet
+  # - si besoin : pending ON + appel worker
+  #
+  # Important :
+  # - OFF n'est PAS automatiquement un problème
+  # - OFF devient un problème seulement s'il existe un besoin thermique
+  #   ou une incohérence réelle
+  #
+  # Nouvelle base :
+  # - consomme les entités template heat/cool/résolution
+  # - ne recalcule plus localement l'ancien mono-mode
+  # ==========================================================
+  apartment_2_reevaluate_stop_owner_and_maybe_run_worker:
+    alias: "Apartment 2 - Reevaluate stop owner and maybe run worker"
+    mode: restart
+    icon: mdi:account-switch
+
+    sequence:
+      - variables:
+
+          # --------------------------------------------------
+          # Références entités
+          # --------------------------------------------------
+          stop_owner_entity_id: input_select.apartment_2_clim_stop_owner
+          pending_entity_id: input_boolean.apartment_2_reprise_clim_pending
+          retry_count_entity_id: input_number.apartment_2_reprise_clim_retry_count
+          watchdog_first_pass_entity_id: input_boolean.apartment_2_watchdog_first_pass_armed
+          vtherm_entity_id: climate.thermostat_salon_appart_2
+          real_clim_entity_id: climate.clim_appart_2
+          manual_control_entity_id: input_boolean.apartment_2_clim_manuel_control
+          opening_long_entity_id: input_boolean.apartment_2_ouverture_sup_a_5min
+          target_reached_lock_entity_id: input_boolean.apartment_2_lock_temperature_cible_atteinte
+
+          # --------------------------------------------------
+          # Etats invalides vs modes interdits
+          # --------------------------------------------------
+          invalid_states:
+            - "unknown"
+            - "unavailable"
+            - "none"
+            - ""
+
+          forbidden_modes:
+            - "dry"
+            - "fan_only"
+            - "auto"
+            - "heat_cool"
+
+          # --------------------------------------------------
+          # Etat actuel du stop_owner
+          # --------------------------------------------------
+          current_stop_owner: "{{ states(stop_owner_entity_id) }}"
+
+          # --------------------------------------------------
+          # Lecture états utiles
+          # --------------------------------------------------
+          current_vtherm_hvac_mode: "{{ states(vtherm_entity_id) }}"
+          current_real_clim_hvac_mode: "{{ states(real_clim_entity_id) }}"
+          current_vtherm_target_temp: "{{ state_attr(vtherm_entity_id, 'temperature') | float(none) }}"
+          current_real_clim_target_temp: "{{ state_attr(real_clim_entity_id, 'temperature') | float(none) }}"
+          current_vtherm_preset_mode: "{{ state_attr(vtherm_entity_id, 'preset_mode') }}"
+
+          # --------------------------------------------------
+          # Nouvelles entités template
+          # --------------------------------------------------
+          expected_preset_mode: "{{ states('sensor.apartment_2_expected_preset_mode') }}"
+          resolved_reference_hvac_mode: "{{ states('sensor.apartment_2_resolved_reference_hvac_mode') }}"
+          resolved_reference_target_temp: "{{ states('sensor.apartment_2_resolved_reference_target_temp') | float(none) }}"
+
+          heat_demand_present: "{{ is_state('binary_sensor.apartment_2_heat_demand_present', 'on') }}"
+          cool_demand_present: "{{ is_state('binary_sensor.apartment_2_cool_demand_present', 'on') }}"
+          thermal_demand_present: "{{ is_state('binary_sensor.apartment_2_thermal_demand_present', 'on') }}"
+
+          # --------------------------------------------------
+          # Exploitabilité de la chaîne vTherm / clim réelle
+          #
+          # Important :
+          # - on N'UTILISE PAS le capteur de température salon ici
+          # - un capteur dégradé ne doit pas bloquer tout le système
+          # --------------------------------------------------
+          clim_non_exploitable: >
+            {{
+              current_vtherm_hvac_mode in invalid_states
+              or current_real_clim_hvac_mode in invalid_states
+            }}
+
+          # --------------------------------------------------
+          # Nouveau stop_owner calculé
+          # --------------------------------------------------
+          computed_stop_owner: >
+            {% if current_stop_owner == 'blocked_non_exploitable' and (clim_non_exploitable | bool(false)) %}
+              blocked_non_exploitable
+            {% elif current_stop_owner == 'blocked_retry_limit' %}
+              blocked_retry_limit
+            {% elif is_state(manual_control_entity_id, 'on') %}
+              manual_off
+            {% elif is_state(opening_long_entity_id, 'on') %}
+              opening_long
+            {% elif is_state(target_reached_lock_entity_id, 'on') %}
+              target_reached_lock
+            {% else %}
+              none
+            {% endif %}
+
+          # --------------------------------------------------
+          # Chaîne principale active
+          #
+          # Salon + clim réelle portent la validation finale.
+          # On considère donc qu'il y a activité dès qu'au moins
+          # un des deux est encore en heat/cool.
+          # --------------------------------------------------
+          main_chain_active: >
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              or current_real_clim_hvac_mode in ['heat', 'cool']
+            }}
+
+          # --------------------------------------------------
+          # Incohérences réelles
+          # --------------------------------------------------
+          real_clim_hvac_mode_forbidden: >
+            {{ current_real_clim_hvac_mode in forbidden_modes }}
+
+          active_mode_mismatch: >
+            {{
+              (main_chain_active | bool(false))
+              and (
+                current_vtherm_hvac_mode not in ['heat', 'cool']
+                or current_real_clim_hvac_mode not in ['heat', 'cool']
+                or current_vtherm_hvac_mode != current_real_clim_hvac_mode
+              )
+            }}
+
+          active_target_mismatch: >-
+            {{
+              (main_chain_active | bool(false))
+              and resolved_reference_hvac_mode in ['heat', 'cool']
+              and (
+                current_vtherm_target_temp is none
+                or current_real_clim_target_temp is none
+                or resolved_reference_target_temp is none
+                or ((current_vtherm_target_temp - resolved_reference_target_temp) | abs) > 0.5
+                or ((current_real_clim_target_temp - resolved_reference_target_temp) | abs) > 0.5
+              )
+            }}
+
+          active_preset_mismatch: >
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              and current_vtherm_preset_mode != expected_preset_mode
+            }}
+
+          # --------------------------------------------------
+          # Need rebalance
+          #
+          # On relance si :
+          # - clim non exploitable
+          # - mode interdit
+          # - désalignement actif mode/target/preset
+          # - vraie demande thermique présente alors que le système
+          #   est OFF, pas exploitable, ou pas sur le bon mode
+          # --------------------------------------------------
+          need_rebalance: >-
+            {{
+              clim_non_exploitable
+              or real_clim_hvac_mode_forbidden
+              or active_mode_mismatch
+              or active_target_mismatch
+              or active_preset_mismatch
+              or (
+                (thermal_demand_present | bool(false))
+                and resolved_reference_hvac_mode in ['heat', 'cool']
+                and (
+                  current_vtherm_hvac_mode == 'off'
+                  or current_real_clim_hvac_mode == 'off'
+                  or current_vtherm_hvac_mode not in ['heat', 'cool']
+                  or current_real_clim_hvac_mode not in ['heat', 'cool']
+                  or current_vtherm_hvac_mode != resolved_reference_hvac_mode
+                  or current_real_clim_hvac_mode != resolved_reference_hvac_mode
+                )
+              )
+            }}
+
+      # ------------------------------------------------------
+      # Met à jour stop_owner si nécessaire
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ current_stop_owner != computed_stop_owner }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.apartment_2_clim_stop_owner
+                data:
+                  option: "{{ computed_stop_owner }}"
+
+      # ------------------------------------------------------
+      # Si un owner est actif :
+      # - on applique OFF homogène
+      # - on ne relance rien
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ computed_stop_owner != 'none' }}"
+            sequence:
+              - action: script.apartment_2_apply_off_state_stop_owner
+              - stop: "Stop owner actif, système maintenu à l'arrêt"
+
+      # ------------------------------------------------------
+      # Aucun owner actif :
+      # - si besoin de rééquilibrage => pending ON + worker
+      # - sinon nettoyage
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ need_rebalance | bool(false) }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.apartment_2_reprise_clim_pending
+
+              - action: script.apartment_2_hvac_rebalance_worker
+
+          - conditions:
+              - condition: template
+                value_template: "{{ not (need_rebalance | bool(false)) }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_2_reprise_clim_pending
+
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.apartment_2_reprise_clim_retry_count
+                data:
+                  value: 0
+
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_2_watchdog_first_pass_armed
+
+
+  # ==========================================================
+  # Script 2
+  # Worker principal
+  #
+  # Rôle :
+  # - attendre si cmd_in_progress est déjà ON
+  # - rechecker l'état
+  # - nettoyer si tout est cohérent
+  # - bloquer si non exploitable
+  # - bloquer si retry limit atteinte
+  # - sinon incrémenter retry_count puis appeler le script métier
+  #
+  # Très important :
+  # - le worker est le SEUL à appeler le script métier
+  # - le doublon de logique a été supprimé
+  # ==========================================================
+  apartment_2_hvac_rebalance_worker:
+    alias: "Apartment 2 - HVAC rebalance worker"
+    mode: queued
+    max: 10
+    icon: mdi:tools
+
+    sequence:
+      - variables:
+          max_retry: 3
+
+      # ------------------------------------------------------
+      # Pending doit être ON
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_2_reprise_clim_pending
+                state: "off"
+            sequence:
+              - stop: "Pending OFF, rien à faire"
+
+      # ------------------------------------------------------
+      # Si un owner est actif, le worker ne travaille pas
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_select.apartment_2_clim_stop_owner') != 'none' }}"
+            sequence:
+              - stop: "Stop owner actif, worker bloqué"
+
+      # ------------------------------------------------------
+      # On attend la fin d'une éventuelle commande HA en cours
+      # ------------------------------------------------------
+      - wait_template: "{{ is_state('input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress', 'off') }}"
+        timeout: "00:01:30"
+        continue_on_timeout: true
+
+      # ------------------------------------------------------
+      # Si cmd_in_progress est resté bloqué, on sort.
+      # Le failsafe externe remettra cmd_in_progress à OFF
+      # puis appellera le script de réévaluation.
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+                state: "on"
+            sequence:
+              - stop: "cmd_in_progress toujours ON après attente"
+
+      # ------------------------------------------------------
+      # Après attente, on revérifie stop_owner et pending
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_select.apartment_2_clim_stop_owner') != 'none' }}"
+            sequence:
+              - stop: "Stop owner devenu actif après attente"
+
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_2_reprise_clim_pending
+                state: "off"
+            sequence:
+              - stop: "Pending repassé OFF après attente"
+
+      - variables:
+          invalid_states:
+            - "unknown"
+            - "unavailable"
+            - "none"
+            - ""
+
+          forbidden_modes:
+            - "dry"
+            - "fan_only"
+            - "auto"
+            - "heat_cool"
+
+          retry_count: "{{ states('input_number.apartment_2_reprise_clim_retry_count') | int(0) }}"
+
+          # --------------------------------------------------
+          # Etats actuels HVAC
+          # --------------------------------------------------
+          current_vtherm_hvac_mode: "{{ states('climate.thermostat_salon_appart_2') }}"
+          current_real_clim_hvac_mode: "{{ states('climate.clim_appart_2') }}"
+          current_vtherm_target_temp: "{{ state_attr('climate.thermostat_salon_appart_2', 'temperature') | float(none) }}"
+          current_real_clim_target_temp: "{{ state_attr('climate.clim_appart_2', 'temperature') | float(none) }}"
+          current_vtherm_preset_mode: "{{ state_attr('climate.thermostat_salon_appart_2', 'preset_mode') }}"
+
+          # --------------------------------------------------
+          # Nouvelles entités template
+          # --------------------------------------------------
+          expected_preset_mode: "{{ states('sensor.apartment_2_expected_preset_mode') }}"
+          resolved_reference_hvac_mode: "{{ states('sensor.apartment_2_resolved_reference_hvac_mode') }}"
+          resolved_reference_target_temp: "{{ states('sensor.apartment_2_resolved_reference_target_temp') | float(none) }}"
+
+          heat_demand_present: "{{ is_state('binary_sensor.apartment_2_heat_demand_present', 'on') }}"
+          cool_demand_present: "{{ is_state('binary_sensor.apartment_2_cool_demand_present', 'on') }}"
+          thermal_demand_present: "{{ is_state('binary_sensor.apartment_2_thermal_demand_present', 'on') }}"
+
+          # --------------------------------------------------
+          # Exploitabilité chaîne vTherm / clim réelle
+          # --------------------------------------------------
+          clim_non_exploitable: >
+            {{
+              current_vtherm_hvac_mode in invalid_states
+              or current_real_clim_hvac_mode in invalid_states
+            }}
+
+          # --------------------------------------------------
+          # Chaîne principale active
+          #
+          # Salon + clim réelle portent la validation finale.
+          # On considère donc qu'il y a activité dès qu'au moins
+          # un des deux est encore en heat/cool.
+          # --------------------------------------------------
+          main_chain_active: >
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              or current_real_clim_hvac_mode in ['heat', 'cool']
+            }}
+
+          # --------------------------------------------------
+          # Incohérences réelles
+          # --------------------------------------------------
+          real_clim_hvac_mode_forbidden: >
+            {{ current_real_clim_hvac_mode in forbidden_modes }}
+
+          active_mode_mismatch: >
+            {{
+              (main_chain_active | bool(false))
+              and (
+                current_vtherm_hvac_mode not in ['heat', 'cool']
+                or current_real_clim_hvac_mode not in ['heat', 'cool']
+                or current_vtherm_hvac_mode != current_real_clim_hvac_mode
+              )
+            }}
+
+          active_target_mismatch: >-
+            {{
+              (main_chain_active | bool(false))
+              and resolved_reference_hvac_mode in ['heat', 'cool']
+              and (
+                current_vtherm_target_temp is none
+                or current_real_clim_target_temp is none
+                or resolved_reference_target_temp is none
+                or ((current_vtherm_target_temp - resolved_reference_target_temp) | abs) > 0.5
+                or ((current_real_clim_target_temp - resolved_reference_target_temp) | abs) > 0.5
+              )
+            }}
+
+          active_preset_mismatch: >
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              and current_vtherm_preset_mode != expected_preset_mode
+            }}
+
+          # --------------------------------------------------
+          # Besoin de rééquilibrage
+          # --------------------------------------------------
+          need_rebalance_now: >-
+            {{
+              clim_non_exploitable
+              or real_clim_hvac_mode_forbidden
+              or active_mode_mismatch
+              or active_target_mismatch
+              or active_preset_mismatch
+              or (
+                (thermal_demand_present | bool(false))
+                and resolved_reference_hvac_mode in ['heat', 'cool']
+                and (
+                  current_vtherm_hvac_mode == 'off'
+                  or current_real_clim_hvac_mode == 'off'
+                  or current_vtherm_hvac_mode not in ['heat', 'cool']
+                  or current_real_clim_hvac_mode not in ['heat', 'cool']
+                  or current_vtherm_hvac_mode != resolved_reference_hvac_mode
+                  or current_real_clim_hvac_mode != resolved_reference_hvac_mode
+                )
+              )
+            }}
+
+      # ------------------------------------------------------
+      # Si non exploitable => stop_owner = blocked_non_exploitable
+      # puis OFF homogène
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ clim_non_exploitable | bool(false) }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.apartment_2_clim_stop_owner
+                data:
+                  option: "blocked_non_exploitable"
+
+              - action: script.apartment_2_apply_off_state_stop_owner
+              - stop: "Clim non exploitable, blocage technique"
+
+      # ------------------------------------------------------
+      # Si plus besoin de rééquilibrage => nettoyage
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ not (need_rebalance_now | bool(false)) }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_2_reprise_clim_pending
+
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.apartment_2_reprise_clim_retry_count
+                data:
+                  value: 0
+
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_2_watchdog_first_pass_armed
+
+              - stop: "Aucun rééquilibrage finalement nécessaire"
+
+      # ------------------------------------------------------
+      # Retry limit atteinte => blocage + OFF homogène
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ retry_count >= max_retry }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.apartment_2_clim_stop_owner
+                data:
+                  option: "blocked_retry_limit"
+
+              - action: script.apartment_2_apply_off_state_stop_owner
+              - stop: "Retry limit atteinte"
+
+      # ------------------------------------------------------
+      # Sinon on incrémente le compteur puis on appelle
+      # le script métier
+      # ------------------------------------------------------
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.apartment_2_reprise_clim_retry_count
+        data:
+          value: "{{ retry_count + 1 }}"
+
+      - action: script.apartment_2_apply_hvac_regime_and_thermostats
+
+
+  # ==========================================================
+  # Script 3
+  # Script métier
+  #
+  # Rôle :
+  # - appliquer le régime normal
+  # - consommer le mode résolu déjà arbitré en amont
+  # - appliquer presets et mode clim/radiateurs
+  # - valider le résultat
+  #
+  # Important :
+  # - il refuse de démarrer si owner actif ou cmd déjà en cours
+  # - il ne recalcule plus lui-même la logique principale heat/cool
+  # - les radiateurs sont secondaires :
+  #   * on tente leur pilotage si exploitable
+  #   * ils ne bloquent plus la validation finale
+  # - salon : logique eco / comfort
+  # - radiateurs : logique comfort / off uniquement
+  # ==========================================================
+  apartment_2_apply_hvac_regime_and_thermostats:
+    alias: "Apartment 2 - Apply HVAC regime and thermostats"
+    mode: single
+    icon: mdi:hvac
+
+    sequence:
+    # ------------------------------------------------------
+    # Sécurité : jamais si owner actif
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_select.apartment_2_clim_stop_owner') != 'none' }}"
+          sequence:
+            - stop: "Stop owner actif, script métier interdit"
+
+    # ------------------------------------------------------
+    # Sécurité : stop si une autre commande HA est déjà en cours
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+              state: "on"
+          sequence:
+            - stop: "Commande HA déjà en cours"
+
+    - variables:
+        invalid_states:
+          - "unknown"
+          - "unavailable"
+          - "none"
+          - ""
+
+        resolved_reference_hvac_mode: "{{ states('sensor.apartment_2_resolved_reference_hvac_mode') }}"
+        expected_preset_mode: "{{ states('sensor.apartment_2_expected_preset_mode') }}"
+        resolved_reference_target_temp: "{{ states('sensor.apartment_2_resolved_reference_target_temp') | float(none) }}"
+        current_vtherm_hvac_mode: "{{ states('climate.thermostat_salon_appart_2') }}"
+        current_real_clim_hvac_mode: \"{{ states('climate.clim_appart_2') }}\"
+
+    # ------------------------------------------------------
+    # Sécurité : le mode résolu doit être exploitable
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ resolved_reference_hvac_mode not in ['heat', 'cool'] }}"
+          sequence:
+            - stop: "Mode résolu non exploitable pour le script métier"
+
+    # ------------------------------------------------------
+    # Sécurité : le preset attendu salon doit être exploitable
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ expected_preset_mode not in ['eco', 'comfort'] }}"
+          sequence:
+            - stop: "Preset attendu salon non exploitable pour le script métier"
+
+    # ------------------------------------------------------
+    # Sécurité : target de référence exploitable
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ resolved_reference_target_temp is none }}"
+          sequence:
+            - stop: "Target de référence non exploitable pour le script métier"
+
+    # ------------------------------------------------------
+    # Tag cmd_in_progress = ON
+    # ------------------------------------------------------
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+
+    # ------------------------------------------------------
+    # 1) Appliquer le mode à la clim réelle si nécessaire
+    #
+    # Important :
+    # - on force explicitement le mode réel avant le toggle
+    #   de preset du vTherm
+    # - on n'utilise pas climate.turn_on ici
+    # - on envoie directement heat/cool à l'unité réelle
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ current_real_clim_hvac_mode != resolved_reference_hvac_mode }}"
+          sequence:
+            - action: climate.set_hvac_mode
+              target:
+                entity_id: climate.clim_appart_2
+              data:
+                hvac_mode: "{{ resolved_reference_hvac_mode }}"
+            - delay: "00:00:02"
+
+    # ------------------------------------------------------
+    # 2) Appliquer le mode au vTherm salon si nécessaire
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ current_vtherm_hvac_mode != resolved_reference_hvac_mode }}"
+          sequence:
+            - action: climate.set_hvac_mode
+              target:
+                entity_id: climate.thermostat_salon_appart_2
+              data:
+                hvac_mode: "{{ resolved_reference_hvac_mode }}"
+            - delay: "00:00:02"
+
+    # ------------------------------------------------------
+    # 3) Toggle preset salon pour fiabiliser l'intégration
+    #
+    # Salon = eco / comfort
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ expected_preset_mode == 'comfort' }}"
+          sequence:
+            - action: climate.set_preset_mode
+              target:
+                entity_id: climate.thermostat_salon_appart_2
+              data:
+                preset_mode: "eco"
+
+            - delay: "00:00:02"
+
+            - action: climate.set_preset_mode
+              target:
+                entity_id: climate.thermostat_salon_appart_2
+              data:
+                preset_mode: "comfort"
+
+        - conditions:
+            - condition: template
+              value_template: "{{ expected_preset_mode == 'eco' }}"
+          sequence:
+            - action: climate.set_preset_mode
+              target:
+                entity_id: climate.thermostat_salon_appart_2
+              data:
+                preset_mode: "comfort"
+
+            - delay: "00:00:02"
+
+            - action: climate.set_preset_mode
+              target:
+                entity_id: climate.thermostat_salon_appart_2
+              data:
+                preset_mode: "eco"
+
+    - delay: "00:00:02"
+
+    # ------------------------------------------------------
+    # 3) No secondary radiators for Apartment 2
+    #
+    # Profile A:
+    # - living room only
+    # - no bedroom thermostat
+    # - no bathroom thermostat
+    # ------------------------------------------------------
+    - delay: "00:00:02"
+
+    # ------------------------------------------------------
+    # Si un owner est apparu pendant l'exécution :
+    # - on libère cmd_in_progress
+    # - on applique OFF homogène
+    # - on ne relance pas le worker
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_select.apartment_2_clim_stop_owner') != 'none' }}"
+          sequence:
+            - action: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+
+            - action: script.apartment_2_apply_off_state_stop_owner
+            - stop: "Stop owner devenu actif pendant le script métier"
+
+    - variables:
+        invalid_states:
+          - "unknown"
+          - "unavailable"
+          - "none"
+          - ""
+
+        actual_vtherm_hvac_mode: "{{ states('climate.thermostat_salon_appart_2') }}"
+        actual_vtherm_target_temp: "{{ state_attr('climate.thermostat_salon_appart_2', 'temperature') | float(none) }}"
+        actual_vtherm_preset_mode: "{{ state_attr('climate.thermostat_salon_appart_2', 'preset_mode') }}"
+        actual_real_clim_hvac_mode: "{{ states('climate.clim_appart_2') }}"
+        actual_real_clim_target_temp: "{{ state_attr('climate.clim_appart_2', 'temperature') | float(none) }}"
+
+        vtherm_target_ok: >-
+          {{
+            actual_vtherm_target_temp is not none
+            and resolved_reference_target_temp is not none
+            and ((actual_vtherm_target_temp - resolved_reference_target_temp) | abs) <= 0.5
+          }}
+
+        real_clim_target_ok: >-
+          {{
+            actual_real_clim_target_temp is not none
+            and resolved_reference_target_temp is not none
+            and ((actual_real_clim_target_temp - resolved_reference_target_temp) | abs) <= 0.5
+          }}
+
+        validation_ok: >-
+          {{
+            resolved_reference_hvac_mode in ['heat', 'cool']
+            and expected_preset_mode in ['eco', 'comfort']
+            and actual_vtherm_hvac_mode == resolved_reference_hvac_mode
+            and actual_real_clim_hvac_mode == resolved_reference_hvac_mode
+            and actual_vtherm_preset_mode == expected_preset_mode
+            and (vtherm_target_ok | bool(false))
+            and (real_clim_target_ok | bool(false))
+          }}
+
+    # ------------------------------------------------------
+    # Nettoyage si validation OK
+    # Sinon pending ON
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ validation_ok | bool(false) }}"
+          sequence:
+            - action: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.apartment_2_reprise_clim_pending
+
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.apartment_2_reprise_clim_retry_count
+              data:
+                value: 0
+
+            - action: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.apartment_2_watchdog_first_pass_armed
+
+        - conditions:
+            - condition: template
+              value_template: "{{ not (validation_ok | bool(false)) }}"
+          sequence:
+            - action: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.apartment_2_reprise_clim_pending
+
+    # ------------------------------------------------------
+    # Libération du tag cmd_in_progress
+    # ------------------------------------------------------
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+
+    # ------------------------------------------------------
+    # Si validation KO, le worker reprend la main
+    # ------------------------------------------------------
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ not (validation_ok | bool(false)) }}"
+          sequence:
+            - action: script.apartment_2_hvac_rebalance_worker

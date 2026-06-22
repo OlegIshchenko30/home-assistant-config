@@ -1,0 +1,255 @@
+automation:
+
+  # ==========================================================
+  # Watchdog lent - Cohérence vTherm / clim
+  #
+  # Rôle :
+  # - filet de sécurité lent
+  # - vérifie toutes les 5 minutes si le système semble incohérent
+  # - applique une logique en 2 passes :
+  #     1ère détection => arme watchdog_first_pass_armed
+  #     2ème détection consécutive => pending ON + appel worker
+  #
+  # Important :
+  # - ne change jamais stop_owner
+  # - n'appelle jamais le script métier directement
+  # - appelle uniquement le worker
+  # - si un owner est actif / pending déjà ON / cmd_in_progress déjà ON,
+  #   le watchdog se met en retrait et nettoie son first_pass
+  #
+  # Nouvelle base :
+  # - consomme les entités template heat/cool/résolution
+  # - reste aligné sur la logique du script central et du worker
+  # ==========================================================
+  - id: apartment_7_watchdog_vtherm_ac_coherence
+    alias: "Apartment 7 - Watchdog vTherm / AC coherence"
+    mode: restart
+
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+
+    actions:
+      - variables:
+
+          # --------------------------------------------------
+          # Références entités
+          # --------------------------------------------------
+          stop_owner_entity_id: input_select.apartment_7_clim_stop_owner
+          pending_entity_id: input_boolean.apartment_7_reprise_clim_pending
+          watchdog_first_pass_entity_id: input_boolean.apartment_7_watchdog_first_pass_armed
+          cmd_in_progress_entity_id: input_boolean.apartment_7_thermo_salon_ha_cmd_in_progress
+          vtherm_entity_id: climate.thermostat_salon_appart_7
+          real_clim_entity_id: climate.clim_appart_7
+
+          # --------------------------------------------------
+          # Etats invalides vs modes interdits
+          # --------------------------------------------------
+          invalid_states:
+            - "unknown"
+            - "unavailable"
+            - "none"
+            - ""
+
+          forbidden_modes:
+            - "dry"
+            - "fan_only"
+            - "auto"
+            - "heat_cool"
+
+          # --------------------------------------------------
+          # Etats de contrôle globaux
+          # --------------------------------------------------
+          current_stop_owner: "{{ states(stop_owner_entity_id) }}"
+          pending_is_on: "{{ is_state(pending_entity_id, 'on') }}"
+          cmd_in_progress_is_on: "{{ is_state(cmd_in_progress_entity_id, 'on') }}"
+          watchdog_first_pass_is_on: "{{ is_state(watchdog_first_pass_entity_id, 'on') }}"
+
+      # ------------------------------------------------------
+      # Si un owner est actif, si pending est déjà ON
+      # ou si une commande HA est déjà en cours :
+      # - le watchdog ne fait rien
+      # - il nettoie son first_pass pour éviter un faux 2e passage
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    current_stop_owner != 'none'
+                    or pending_is_on
+                    or cmd_in_progress_is_on
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_7_watchdog_first_pass_armed
+              - stop: "Watchdog en retrait (owner actif, pending ON ou cmd en cours)"
+
+      - variables:
+
+          # --------------------------------------------------
+          # Lecture états utiles
+          # --------------------------------------------------
+          current_vtherm_hvac_mode: "{{ states(vtherm_entity_id) }}"
+          current_real_clim_hvac_mode: "{{ states(real_clim_entity_id) }}"
+          current_vtherm_target_temp: "{{ state_attr(vtherm_entity_id, 'temperature') | float(none) }}"
+          current_real_clim_target_temp: "{{ state_attr(real_clim_entity_id, 'temperature') | float(none) }}"
+          current_vtherm_preset_mode: "{{ state_attr(vtherm_entity_id, 'preset_mode') }}"
+
+          # --------------------------------------------------
+          # Nouvelles entités template
+          # --------------------------------------------------
+          expected_preset_mode: "{{ states('sensor.apartment_7_expected_preset_mode') }}"
+          resolved_reference_hvac_mode: "{{ states('sensor.apartment_7_resolved_reference_hvac_mode') }}"
+          resolved_reference_target_temp: "{{ states('sensor.apartment_7_resolved_reference_target_temp') | float(none) }}"
+
+          heat_demand_present: "{{ is_state('binary_sensor.apartment_7_heat_demand_present', 'on') }}"
+          cool_demand_present: "{{ is_state('binary_sensor.apartment_7_cool_demand_present', 'on') }}"
+          thermal_demand_present: "{{ is_state('binary_sensor.apartment_7_thermal_demand_present', 'on') }}"
+
+          # --------------------------------------------------
+          # Exploitabilité chaîne vTherm / clim réelle
+          # --------------------------------------------------
+          clim_non_exploitable: >-
+            {{
+              current_vtherm_hvac_mode in invalid_states
+              or current_real_clim_hvac_mode in invalid_states
+            }}
+
+          # --------------------------------------------------
+          # Chaîne principale active
+          #
+          # Salon + clim réelle portent la validation finale.
+          # On considère donc qu'il y a activité dès qu'au moins
+          # un des deux est encore en heat/cool.
+          # --------------------------------------------------
+          main_chain_active: >
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              or current_real_clim_hvac_mode in ['heat', 'cool']
+            }}
+
+          # --------------------------------------------------
+          # Incohérences réelles
+          # --------------------------------------------------
+          real_clim_hvac_mode_forbidden: >-
+            {{ current_real_clim_hvac_mode in forbidden_modes }}
+
+          active_mode_mismatch: >-
+            {{
+              (main_chain_active | bool(false))
+              and (
+                current_vtherm_hvac_mode not in ['heat', 'cool']
+                or current_real_clim_hvac_mode not in ['heat', 'cool']
+                or current_vtherm_hvac_mode != current_real_clim_hvac_mode
+              )
+            }}
+
+          active_target_mismatch: >-
+            {{
+              (main_chain_active | bool(false))
+              and resolved_reference_hvac_mode in ['heat', 'cool']
+              and (
+                current_vtherm_target_temp is none
+                or current_real_clim_target_temp is none
+                or resolved_reference_target_temp is none
+                or ((current_vtherm_target_temp - resolved_reference_target_temp) | abs) > 0.5
+                or ((current_real_clim_target_temp - resolved_reference_target_temp) | abs) > 0.5
+              )
+            }}
+
+          active_preset_mismatch: >-
+            {{
+              current_vtherm_hvac_mode in ['heat', 'cool']
+              and current_vtherm_preset_mode != expected_preset_mode
+            }}
+
+          # --------------------------------------------------
+          # Besoin de rééquilibrage vu par le watchdog
+          #
+          # Cas 1 :
+          # - chaîne non exploitable
+          # - mode interdit
+          # - incohérence active pendant fonctionnement
+          #
+          # Cas 2 :
+          # - une vraie demande thermique existe
+          # - le système est OFF ou pas dans le bon mode
+          # --------------------------------------------------
+          need_rebalance_watchdog: >-
+            {{
+              clim_non_exploitable
+              or real_clim_hvac_mode_forbidden
+              or active_mode_mismatch
+              or active_target_mismatch
+              or active_preset_mismatch
+              or (
+                (thermal_demand_present | bool(false))
+                and resolved_reference_hvac_mode in ['heat', 'cool']
+                and (
+                  current_vtherm_hvac_mode == 'off'
+                  or current_real_clim_hvac_mode == 'off'
+                  or current_vtherm_hvac_mode not in ['heat', 'cool']
+                  or current_real_clim_hvac_mode not in ['heat', 'cool']
+                  or current_vtherm_hvac_mode != resolved_reference_hvac_mode
+                  or current_real_clim_hvac_mode != resolved_reference_hvac_mode
+                )
+              )
+            }}
+
+      # ------------------------------------------------------
+      # 1ère détection : on arme le first pass puis on sort
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    (need_rebalance_watchdog | bool(false))
+                    and not (watchdog_first_pass_is_on | bool(false))
+                  }}
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.apartment_7_watchdog_first_pass_armed
+              - stop: "1ere detection watchdog, first pass armed"
+
+      # ------------------------------------------------------
+      # 2ème détection consécutive :
+      # - pending ON
+      # - reset first pass
+      # - appel worker
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    (need_rebalance_watchdog | bool(false))
+                    and (watchdog_first_pass_is_on | bool(false))
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_7_watchdog_first_pass_armed
+
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.apartment_7_reprise_clim_pending
+
+              - action: script.apartment_7_hvac_rebalance_worker
+              - stop: "2eme detection watchdog, worker lance"
+
+      # ------------------------------------------------------
+      # Si tout est redevenu cohérent :
+      # - on nettoie first_pass
+      # ------------------------------------------------------
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ not (need_rebalance_watchdog | bool(false)) }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_7_watchdog_first_pass_armed

@@ -1,0 +1,77 @@
+script:
+
+  # ==========================================================
+  # Script global - Alerte phone only
+  #
+  # Rôle :
+  # - envoyer une alerte simple sur le téléphone
+  #
+  # Champs attendus :
+  # - title
+  # - message
+  # ==========================================================
+  alerte_globale_phone_only:
+    alias: "Alerte Globale (phone only)"
+    mode: parallel
+    description: "Ce script permet d'envoyer une alerte sur le téléphone."
+
+    fields:
+      title:
+        description: "Titre"
+        example: "Appart 4 - Zigbee"
+      message:
+        description: "Message"
+        example: "Capteur offline"
+
+    sequence:
+      - alias: "1/ Alerte téléphone"
+        action: notify.mobile_app_xiaomi_14_oleg
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+
+
+  # ==========================================================
+  # Script global - Alerte phone + telegram topic
+  #
+  # Rôle :
+  # - envoyer une alerte sur le téléphone
+  # - envoyer la même alerte dans le topic Telegram
+  #
+  # Champs attendus :
+  # - title
+  # - message
+  #
+  # Important :
+  # - le formatage spécifique à la famille d'alerte
+  #   doit rester dans l'automation appelante
+  # ==========================================================
+  alerte_globale_phone_telegram_topic:
+    alias: "Alerte Globale (phone + telegram topic)"
+    mode: parallel
+    description: "Ce script permet d'envoyer des alertes sur le téléphone et dans le topic Telegram."
+
+    fields:
+      title:
+        description: "Titre"
+        example: "Appart 4 - Zigbee"
+      message:
+        description: "Message"
+        example: "Capteur offline"
+
+    sequence:
+      - alias: "1/ Alerte téléphone"
+        action: notify.mobile_app_xiaomi_14_oleg
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+
+      - alias: "2/ Alerte Telegram (topic)"
+        action: telegram_bot.send_message
+        data:
+          config_entry_id: 01KGHVQNK32F25WKBR2N2AVZXY
+          chat_id:
+            - -1002591663785
+          message_thread_id: 710
+          parse_mode: html
+          message: "{{ title }}\n\n{{ message }}"

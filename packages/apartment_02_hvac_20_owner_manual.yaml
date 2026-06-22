@@ -1,0 +1,137 @@
+automation:
+
+  # ==========================================================
+  # Owner manual_off - Détection d'un arrêt manuel de la clim
+  #
+  # Rôle :
+  # - détecter que la clim réelle est passée à OFF sans commande HA
+  # - poser le fait brut "clim_manuel_control = on"
+  # - démarrer le hold de 4h
+  # - appeler le script central pour recalculer stop_owner
+  #
+  # Important :
+  # - on ne dépend PAS de cmd_in_progress pour déclencher
+  # - cmd_in_progress sert seulement de filtre anti-faux-positif
+  # ==========================================================
+  - id: apartment_2_detect_manual_ac_stop
+    alias: "Apartment 2 - Detect manual AC stop"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: climate.clim_appart_2
+        to: "off"
+
+    conditions:
+      # Le trigger doit venir d'un vrai état précédent exploitable
+      - condition: template
+        value_template: >
+          {{
+            trigger.from_state is not none
+            and trigger.from_state.state not in ['off', 'unknown', 'unavailable', 'none', '']
+          }}
+
+      # Si HA est déjà en train d'envoyer une commande,
+      # on ne considère pas ça comme un arrêt manuel
+      - condition: state
+        entity_id: input_boolean.apartment_2_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+    actions:
+      # Pose le fait brut "manual_off"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_2_clim_manuel_control
+
+      # Redémarre le hold 4h
+      - action: timer.start
+        target:
+          entity_id: timer.apartment_2_clim_manual_off_hold
+
+      # Recalcul central
+      - action: script.apartment_2_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Owner manual_off - Sortie du mode manuel si la clim est rallumée
+  #
+  # Rôle :
+  # - si la clim réelle repasse sur un mode non OFF alors que
+  #   manual_off est actif, on retire le fait brut manual_off
+  # - on annule le hold 4h
+  # - on appelle le script central
+  #
+  # Important :
+  # - on accepte tout mode non OFF comme "rallumée"
+  # - la normalisation éventuelle du mode sera gérée ailleurs
+  # ==========================================================
+  - id: apartment_2_exit_manual_mode_if_ac_restarts
+    alias: "Apartment 2 - Exit manual mode if AC restarts"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: climate.clim_appart_2
+        to: null
+
+    conditions:
+      # On ne s'intéresse qu'au cas où manual_off est actuellement actif
+      - condition: state
+        entity_id: input_boolean.apartment_2_clim_manuel_control
+        state: "on"
+
+      # La clim doit être réellement rallumée
+      - condition: template
+        value_template: >
+          {{
+            trigger.to_state is not none
+            and trigger.to_state.state not in ['off', 'unknown', 'unavailable', 'none', '']
+          }}
+
+    actions:
+      # On retire le fait brut manual_off
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_2_clim_manuel_control
+
+      # On annule le hold 4h
+      - action: timer.cancel
+        target:
+          entity_id: timer.apartment_2_clim_manual_off_hold
+
+      # Recalcul central
+      - action: script.apartment_2_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Owner manual_off - Fin du hold manuel après 4h
+  #
+  # Rôle :
+  # - libérer le fait brut manual_off quand le timer est terminé
+  # - laisser le script central décider s'il faut rester OFF
+  #   ou relancer le système selon le besoin réel
+  # ==========================================================
+  - id: apartment_2_end_manual_mode_after_4h
+    alias: "Apartment 2 - End manual mode after 4h"
+    mode: restart
+
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.apartment_2_clim_manual_off_hold
+
+    conditions:
+      # Par sécurité, on ne fait quelque chose que si manual_off est encore actif
+      - condition: state
+        entity_id: input_boolean.apartment_2_clim_manuel_control
+        state: "on"
+
+    actions:
+      # Fin du fait brut manual_off
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_2_clim_manuel_control
+
+      # Recalcul central
+      - action: script.apartment_2_reevaluate_stop_owner_and_maybe_run_worker

@@ -1,0 +1,188 @@
+automation:
+
+  # ==========================================================
+  # Owner target_reached_lock - Activation du lock quand la
+  # température cible métier est atteinte
+  #
+  # Rôle :
+  # - détecter que la température salon a atteint la target
+  #   métier de référence
+  # - poser le fait brut lock_temperature_cible_atteinte = on
+  # - démarrer le timer de lock
+  # - appeler le script central
+  #
+  # Important :
+  # - cette automation ne coupe pas directement le système
+  # - elle consomme la couche template comme source de vérité
+  # - elle ne dépend plus de clim_target_wanted
+  # - elle ne pose le lock que s'il n'existe plus de demande
+  #   thermique réelle
+  # ==========================================================
+  - id: apartment_8_target_temperature_reached_off
+    alias: "Apartment 8 - Target temperature reached OFF"
+    mode: restart
+
+    triggers:
+      - trigger: template
+        value_template: >
+          {% set current_temp = states('sensor.appart_8_capteur_temperature_salon_temperature') | float(none) %}
+          {% set resolved_reference_hvac_mode = states('sensor.apartment_8_resolved_reference_hvac_mode') %}
+          {% set resolved_reference_target_temp = states('sensor.apartment_8_resolved_reference_target_temp') | float(none) %}
+          {% set thermal_demand_present = is_state('binary_sensor.apartment_8_thermal_demand_present', 'on') %}
+          {% set salon_mode = states('climate.thermostat_salon_appart_8') %}
+          {% set real_clim_mode = states('climate.clim_appart_8') %}
+
+          {{
+            current_temp is not none
+            and resolved_reference_target_temp is not none
+            and resolved_reference_hvac_mode in ['heat', 'cool']
+            and not (thermal_demand_present | bool(false))
+            and (
+              salon_mode in ['heat', 'cool']
+              or real_clim_mode in ['heat', 'cool']
+            )
+            and (
+              (resolved_reference_hvac_mode == 'heat' and current_temp >= resolved_reference_target_temp)
+              or
+              (resolved_reference_hvac_mode == 'cool' and current_temp <= resolved_reference_target_temp)
+            )
+          }}
+        for: "00:01:00"
+
+    conditions:
+      # Le lock ne doit pas être déjà actif
+      - condition: state
+        entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+        state: "off"
+
+      # Aucun autre owner ne doit déjà bloquer
+      - condition: state
+        entity_id: input_select.apartment_8_clim_stop_owner
+        state: "none"
+
+      # Le mode métier résolu doit être exploitable
+      - condition: template
+        value_template: >
+          {{
+            states('sensor.apartment_8_resolved_reference_hvac_mode') in ['heat', 'cool']
+          }}
+
+      # La target métier résolue doit être exploitable
+      - condition: template
+        value_template: >
+          {{
+            states('sensor.apartment_8_resolved_reference_target_temp') not in ['unknown', 'unavailable', 'none', '']
+          }}
+
+      # La température salon doit être exploitable
+      - condition: template
+        value_template: >
+          {{
+            states('sensor.appart_8_capteur_temperature_salon_temperature') not in ['unknown', 'unavailable', 'none', '']
+          }}
+
+      # Il ne doit plus y avoir de vraie demande thermique
+      - condition: template
+        value_template: >
+          {{
+            not (is_state('binary_sensor.apartment_8_thermal_demand_present', 'on') | bool(false))
+          }}
+
+      # Au moins un des deux éléments principaux doit encore être actif
+      - condition: template
+        value_template: >
+          {{
+            states('climate.thermostat_salon_appart_8') in ['heat', 'cool']
+            or states('climate.clim_appart_8') in ['heat', 'cool']
+          }}
+
+    actions:
+      # Pose le fait brut "target_reached_lock"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+
+      # Démarre / redémarre le lock d'une heure
+      - action: timer.start
+        target:
+          entity_id: timer.apartment_8_clim_lock_temperature_cible_atteinte
+
+      # Recalcul central
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Owner target_reached_lock - Fin du lock après timer
+  #
+  # Rôle :
+  # - retirer le fait brut lock_temperature_cible_atteinte
+  # - appeler le script central
+  #
+  # Important :
+  # - le script central décidera ensuite s'il faut rester OFF
+  #   ou relancer selon le besoin thermique réel
+  # ==========================================================
+  - id: apartment_8_end_target_temperature_lock
+    alias: "Apartment 8 - End target temperature lock"
+    mode: restart
+
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.apartment_8_clim_lock_temperature_cible_atteinte
+
+    conditions:
+      - condition: state
+        entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+        state: "on"
+
+    actions:
+      # Retire le fait brut "target_reached_lock"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+
+      # Recalcul central
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Owner target_reached_lock - Anti-rallumage pendant lock
+  #
+  # Rôle :
+  # - si un élément HVAC repasse ON pendant le lock,
+  #   on redemande immédiatement un recalcul central
+  #
+  # Important :
+  # - cette automation ne pilote pas directement les équipements
+  # - elle laisse le script central réaffirmer l'OFF homogène
+  # ==========================================================
+  - id: apartment_8_anti_restart_during_target_temperature_lock
+    alias: "Apartment 8 - Anti restart during target temperature lock"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - climate.thermostat_salon_appart_8
+          - climate.clim_appart_8
+          - climate.thermostat_salle_de_bain_appart_8
+
+    conditions:
+      # Le lock doit être actif
+      - condition: state
+        entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+        state: "on"
+
+      # On ne s'intéresse qu'aux rallumages réels
+      - condition: template
+        value_template: >
+          {{
+            trigger.to_state is not none
+            and trigger.to_state.state not in ['off', 'unknown', 'unavailable', 'none', '']
+          }}
+
+    actions:
+      # Recalcul central -> OFF homogène si stop_owner reste actif
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker

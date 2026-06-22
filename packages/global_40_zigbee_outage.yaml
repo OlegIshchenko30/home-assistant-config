@@ -1,0 +1,113 @@
+automation:
+
+  # ==========================================================
+  # ALERTE GLOBALE - Panne Zigbee probable
+  #
+  # Rôle :
+  # - détecter une panne Zigbee globale si >= 6 entités de la
+  #   watchlist sont offline depuis au moins 10 minutes
+  # - éviter le spam via un verrou global
+  # - envoyer aussi un message de retour à la normale
+  #
+  # Important :
+  # - s'appuie sur group.watchlist_zigbee_all
+  # - s'appuie sur input_boolean.zigbee_panne_globale_active
+  #   comme verrou anti-spam
+  # ==========================================================
+  - id: global_alerte_panne_zigbee
+    alias: "Global - Alerte panne Zigbee"
+    mode: single
+
+    triggers:
+      - alias: "Surveillance toutes les 10 minutes"
+        trigger: time_pattern
+        minutes: "/10"
+
+    actions:
+      - alias: "1/ Calculer l'état global"
+        variables:
+          offline_now_count: >-
+            {{
+              expand('group.watchlist_zigbee_all')
+              | selectattr('state', 'in', ['unavailable', 'unknown'])
+              | list
+              | count
+            }}
+
+          offline_10min_count: >-
+            {% set offline_now = expand('group.watchlist_zigbee_all')
+              | selectattr('state', 'in', ['unavailable', 'unknown'])
+              | list %}
+            {{
+              offline_now
+              | selectattr('last_changed', 'lt', now() - timedelta(minutes=10))
+              | list
+              | count
+            }}
+
+          examples: >-
+            {% set offline_now = expand('group.watchlist_zigbee_all')
+              | selectattr('state', 'in', ['unavailable', 'unknown'])
+              | list %}
+            {% set offline_10min = offline_now
+              | selectattr('last_changed', 'lt', now() - timedelta(minutes=10))
+              | list %}
+            {{
+              (offline_10min | map(attribute='name') | list)[:6] | join(', ')
+            }}
+
+      - alias: "2/ Choix"
+        choose:
+
+          # --------------------------------------------------
+          # A) Déclencher l'alerte globale
+          # --------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ (offline_10min_count | int(0)) >= 6 }}"
+              - condition: state
+                entity_id: input_boolean.zigbee_panne_globale_active
+                state: "off"
+            sequence:
+              - alias: "A1/ Activer le verrou anti-spam"
+                action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.zigbee_panne_globale_active
+
+              - alias: "A2/ Envoyer l'alerte"
+                action: script.alerte_globale_phone_telegram_topic
+                data:
+                  title: "Alerte - Panne Zigbee probable"
+                  message: >-
+                    {{ offline_now_count | int(0) }} entités sont offline,
+                    dont {{ offline_10min_count | int(0) }} depuis au moins
+                    10 minutes.
+                    {% if examples | trim != '' %}
+                    Exemples : {{ examples }}.
+                    {% endif %}
+
+          # --------------------------------------------------
+          # B) Retour à la normale
+          # --------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ (offline_10min_count | int(0)) < 6 }}"
+              - condition: state
+                entity_id: input_boolean.zigbee_panne_globale_active
+                state: "on"
+            sequence:
+              - alias: "B1/ Désactiver le verrou anti-spam"
+                action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.zigbee_panne_globale_active
+
+              - alias: "B2/ Envoyer le retour à la normale"
+                action: script.alerte_globale_phone_telegram_topic
+                data:
+                  title: "Réseau Zigbee revenu"
+                  message: >-
+                    Le réseau Zigbee semble revenu à la normale.
+                    Nombre d'entités offline depuis au moins 10 minutes :
+                    {{ offline_10min_count | int(0) }}.
+
+        default: []

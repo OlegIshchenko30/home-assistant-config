@@ -1,0 +1,440 @@
+# Tous les input ne sont pas ici. L'idée est de ne pas dupliquer ce qui a déjà été fait via l'UI et ce qui est fait ici dans le fichier directement.
+
+################################################################################
+
+input_number:
+
+  appart_1_last_clim_target_seen:
+    name: "Appart 1 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_2_last_clim_target_seen:
+    name: "Appart 2 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_3_last_clim_target_seen:
+    name: "Appart 3 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+
+  appart_5_last_clim_target_seen:
+    name: "Appart 5 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_6_last_clim_target_seen:
+    name: "Appart 6 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_7_last_clim_target_seen:
+    name: "Appart 7 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_8_last_clim_target_seen:
+    name: "Appart 8 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_9_last_clim_target_seen:
+    name: "Appart 9 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+  appart_10_last_clim_target_seen:
+    name: "Appart 10 - Last clim target seen"
+    min: 16
+    max: 35
+    step: 1
+    initial: 16
+
+#########
+
+  appart_1_reprise_clim_retry_count:
+    name: "Appart 1 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_2_reprise_clim_retry_count:
+    name: "Appart 2 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_3_reprise_clim_retry_count:
+    name: "Appart 3 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+
+
+  appart_5_reprise_clim_retry_count:
+    name: "Appart 5 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_6_reprise_clim_retry_count:
+    name: "Appart 6 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_7_reprise_clim_retry_count:
+    name: "Appart 7 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_8_reprise_clim_retry_count:
+    name: "Appart 8 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_9_reprise_clim_retry_count:
+    name: "Appart 9 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+  appart_10_reprise_clim_retry_count:
+    name: "Appart 10 - Reprise clim retry count"
+    min: 0
+    max: 10
+    step: 1
+    initial: 0
+    icon: mdi:counter
+
+#########
+
+
+################################################################################
+
+input_boolean:
+
+  appart_1_watchdog_mismatch:
+    name: "Appart 1 - Watchdog mismatch"
+  appart_2_watchdog_mismatch:
+    name: "Appart 2 - Watchdog mismatch"
+  appart_3_watchdog_mismatch:
+    name: "Appart 3 - Watchdog mismatch"
+
+  appart_5_watchdog_mismatch:
+    name: "Appart 5 - Watchdog mismatch"
+  appart_6_watchdog_mismatch:
+    name: "Appart 6 - Watchdog mismatch"
+  appart_7_watchdog_mismatch:
+    name: "Appart 7 - Watchdog mismatch"
+  appart_8_watchdog_mismatch:
+    name: "Appart 8 - Watchdog mismatch"
+  appart_9_watchdog_mismatch:
+    name: "Appart 9 - Watchdog mismatch"
+  appart_10_watchdog_mismatch:
+    name: "Appart 10 - Watchdog mismatch"
+
+#########
+
+  appart_1_clim_auto_off_hysteresis:
+    name: "Appart 1 - Clim auto OFF hystérésis"
+  appart_2_clim_auto_off_hysteresis:
+    name: "Appart 2 - Clim auto OFF hystérésis"
+  appart_3_clim_auto_off_hysteresis:
+    name: "Appart 3 - Clim auto OFF hystérésis"
+
+  appart_5_clim_auto_off_hysteresis:
+    name: "Appart 5 - Clim auto OFF hystérésis"
+  appart_6_clim_auto_off_hysteresis:
+    name: "Appart 6 - Clim auto OFF hystérésis"
+  appart_7_clim_auto_off_hysteresis:
+    name: "Appart 7 - Clim auto OFF hystérésis"
+  appart_8_clim_auto_off_hysteresis:
+    name: "Appart 8 - Clim auto OFF hystérésis"
+  appart_9_clim_auto_off_hysteresis:
+    name: "Appart 9 - Clim auto OFF hystérésis"
+  appart_10_clim_auto_off_hysteresis:
+    name: "Appart 10 - Clim auto OFF hystérésis"
+
+#########
+
+  appart_1_hysteresis_reprise_pending:
+    name: "Appart 1 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_2_hysteresis_reprise_pending:
+    name: "Appart 2 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_3_hysteresis_reprise_pending:
+    name: "Appart 3 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+
+
+  appart_5_hysteresis_reprise_pending:
+    name: "Appart 5 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_6_hysteresis_reprise_pending:
+    name: "Appart 6 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_7_hysteresis_reprise_pending:
+    name: "Appart 7 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_8_hysteresis_reprise_pending:
+    name: "Appart 8 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_9_hysteresis_reprise_pending:
+    name: "Appart 9 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+  appart_10_hysteresis_reprise_pending:
+    name: "Appart 10 - Hystérésis reprise pending"
+    icon: mdi:thermostat-auto
+
+#########
+
+  appart_1_watchdog_first_pass_armed:
+    name: "Appart 1 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_2_watchdog_first_pass_armed:
+    name: "Appart 2 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_3_watchdog_first_pass_armed:
+    name: "Appart 3 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+
+
+  appart_5_watchdog_first_pass_armed:
+    name: "Appart 5 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_6_watchdog_first_pass_armed:
+    name: "Appart 6 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_7_watchdog_first_pass_armed:
+    name: "Appart 7 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_8_watchdog_first_pass_armed:
+    name: "Appart 8 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_9_watchdog_first_pass_armed:
+    name: "Appart 9 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+  appart_10_watchdog_first_pass_armed:
+    name: "Appart 10 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+
+#########
+
+  appart_1_reprise_clim_blocked:
+    name: "Appart 1 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_2_reprise_clim_blocked:
+    name: "Appart 2 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_3_reprise_clim_blocked:
+    name: "Appart 3 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+
+
+  appart_5_reprise_clim_blocked:
+    name: "Appart 5 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_6_reprise_clim_blocked:
+    name: "Appart 6 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_7_reprise_clim_blocked:
+    name: "Appart 7 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_8_reprise_clim_blocked:
+    name: "Appart 8 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_9_reprise_clim_blocked:
+    name: "Appart 9 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+  appart_10_reprise_clim_blocked:
+    name: "Appart 10 - Reprise clim blocked"
+    icon: mdi:lock-alert
+
+
+#########
+
+
+
+
+
+
+################################################################################
+
+timer:
+
+  appart_1_clim_lock_hysteresis:
+    name: "Appart 1 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_2_clim_lock_hysteresis:
+    name: "Appart 2 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_3_clim_lock_hysteresis:
+    name: "Appart 3 - Lock clim hystérésis"
+    duration: "01:00:00"
+
+  appart_5_clim_lock_hysteresis:
+    name: "Appart 5 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_6_clim_lock_hysteresis:
+    name: "Appart 6 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_7_clim_lock_hysteresis:
+    name: "Appart 7 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_8_clim_lock_hysteresis:
+    name: "Appart 8 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_9_clim_lock_hysteresis:
+    name: "Appart 9 - Lock clim hystérésis"
+    duration: "01:00:00"
+  appart_10_clim_lock_hysteresis:
+    name: "Appart 10 - Lock clim hystérésis"
+    duration: "01:00:00"
+
+################################################################################
+
+input_select:
+
+  appart_1_reprise_clim_block_reason:
+    name: "Appart 1 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_2_reprise_clim_block_reason:
+    name: "Appart 2 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_3_reprise_clim_block_reason:
+    name: "Appart 3 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+
+  appart_5_reprise_clim_block_reason:
+    name: "Appart 5 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_6_reprise_clim_block_reason:
+    name: "Appart 6 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_7_reprise_clim_block_reason:
+    name: "Appart 7 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_8_reprise_clim_block_reason:
+    name: "Appart 8 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_9_reprise_clim_block_reason:
+    name: "Appart 9 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+  appart_10_reprise_clim_block_reason:
+    name: "Appart 10 - Reprise clim block reason"
+    options:
+      - none
+      - non_exploitable
+      - retry_limit_reached
+    initial: "none"
+    icon: mdi:alert-circle-outline
+
+#########
+
+
+
+
+################################################################################

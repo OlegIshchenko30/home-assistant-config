@@ -1,0 +1,31 @@
+############################################################
+# Capteur de température fictif pour démo Versatile Thermostat
+############################################################
+
+# 1) Slider pour régler la température à la main
+input_number:
+  demo_temperature_brute:
+    name: "Démo - Température brute"
+    min: 0
+    max: 40
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: "mdi:thermometer"
+
+# 2) Capteur virtuel vu par Home Assistant comme un vrai capteur de température
+template:
+  - sensor:
+      - name: "Démo - Capteur de température"
+        unique_id: demo_capteur_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+
+        # On récupère la valeur du slider comme température
+        state: >
+          {{ states('input_number.demo_temperature_brute') | float(20) }}
+
+        # Optionnel : on gère la dispo du capteur
+        availability: >
+          {{ states('input_number.demo_temperature_brute') not in ['unknown', 'unavailable'] }}
+

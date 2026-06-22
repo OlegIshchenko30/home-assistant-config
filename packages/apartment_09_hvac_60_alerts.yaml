@@ -1,0 +1,103 @@
+automation:
+
+  # ==========================================================
+  # ALERTE - Température intérieure anormalement basse
+  #
+  # Rôle :
+  # - alerter rapidement si la température salon chute à un
+  #   niveau anormalement bas
+  # - utile notamment pour détecter un capteur déplacé dans
+  #   un frigo / congélateur ou une manipulation suspecte
+  #
+  # Important :
+  # - cas exceptionnel : alerte téléphone + telegram
+  # - ne contient aucune logique de pilotage HVAC
+  # ==========================================================
+  - id: apartment_9_alert_indoor_temperature_too_low
+    alias: "Apartment 9 - Alert indoor temperature too low"
+    mode: single
+
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.appart_9_capteur_temperature_salon_temperature
+        below: 12
+        for: "00:00:30"
+
+    conditions:
+      # Evite les faux positifs si le capteur n'est pas exploitable
+      - condition: template
+        value_template: >
+          {{
+            states('sensor.appart_9_capteur_temperature_salon_temperature')
+            not in ['unknown', 'unavailable', 'none', '']
+          }}
+
+    actions:
+      - action: script.alerte_globale_phone_telegram_topic
+        data:
+          title: "HVAC Alert - Apartment 9"
+          message: >
+            Living room indoor temperature abnormally low in apartment 9:
+            {{ states('sensor.appart_9_capteur_temperature_salon_temperature') }} °C
+            for at least 30 seconds.
+
+  # ==========================================================
+  # ALERTE - Blocage technique clim
+  #
+  # Rôle :
+  # - alerter si l'architecture entre dans un blocage technique durable
+  # - ne contient aucune logique de pilotage HVAC
+  #
+  # Cas surveillés :
+  # - blocked_non_exploitable
+  # - blocked_retry_limit
+  #
+  # Important :
+  # - on attend 2 heures pour éviter le bruit
+  # - alerte téléphone uniquement
+  # ==========================================================
+  - id: apartment_9_alert_technical_ac_blockage
+    alias: "Apartment 9 - Alert technical AC blockage"
+    mode: single
+
+    triggers:
+      - trigger: state
+        entity_id: input_select.apartment_9_clim_stop_owner
+        to: "blocked_non_exploitable"
+        for: "02:00:00"
+        id: blocked_non_exploitable
+
+      - trigger: state
+        entity_id: input_select.apartment_9_clim_stop_owner
+        to: "blocked_retry_limit"
+        for: "02:00:00"
+        id: blocked_retry_limit
+
+    actions:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'blocked_non_exploitable' }}"
+            sequence:
+              - action: script.alerte_globale_phone_only
+                data:
+                  title: "HVAC Alert - Apartment 9"
+                  message: >
+                    Technical AC blockage in apartment 9:
+                    stop_owner = blocked_non_exploitable for at least 2 hours.
+                    Living room vTherm = {{ states('climate.thermostat_salon_appart_9') }},
+                    real AC = {{ states('climate.clim_appart_9') }}.
+
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'blocked_retry_limit' }}"
+            sequence:
+              - action: script.alerte_globale_phone_only
+                data:
+                  title: "HVAC Alert - Apartment 9"
+                  message: >
+                    Technical AC blockage in apartment 9:
+                    stop_owner = blocked_retry_limit for at least 2 hours.
+                    Retry count = {{ states('input_number.apartment_9_reprise_clim_retry_count') }},
+                    Living room vTherm = {{ states('climate.thermostat_salon_appart_9') }},
+                    real AC = {{ states('climate.clim_appart_9') }}.

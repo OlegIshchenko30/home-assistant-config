@@ -1,0 +1,185 @@
+template:
+
+  # ==========================================================
+  # Bloc 1
+  # Couches logiques de base :
+  # - preset attendu
+  # - targets demand (décision thermique)
+  # - targets effectives (application réelle)
+  #
+  # Doctrine :
+  # - demand_* : toujours basées sur les presets comfort
+  # - effective_* : toujours pilotées par expected_preset_mode
+  #
+  # Important :
+  # - les ouvrants peuvent influencer le preset appliqué
+  #   mais ne doivent plus influencer la demande thermique
+  # - la couche template ne gère plus de mode manuel basé sur
+  #   preset_mode == none
+  # ==========================================================
+  - sensor:
+
+      - name: "Apartment 3 - Expected preset mode"
+        unique_id: apartment_3_expected_preset_mode
+        state: >-
+          {% if is_state('binary_sensor.appart_3_capteur_d_ouverture_porte_entree_contact', 'on') or is_state('binary_sensor.appart_3_capteur_d_ouverture_fenetre_chambre_contact', 'on') %}
+            eco
+          {% else %}
+            comfort
+          {% endif %}
+
+      - name: "Apartment 3 - Demand heat target temp"
+        unique_id: apartment_3_demand_heat_target_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: >-
+          {{ states('number.thermostat_salon_appart_3_preset_comfort_temp') | float(none) }}
+
+      - name: "Apartment 3 - Demand cool target temp"
+        unique_id: apartment_3_demand_cool_target_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: >-
+          {{ states('number.thermostat_salon_appart_3_preset_comfort_ac_temp') | float(none) }}
+
+      - name: "Apartment 3 - Effective heat target temp"
+        unique_id: apartment_3_effective_heat_target_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: >-
+          {% set expected_preset_mode = states('sensor.apartment_3_expected_preset_mode') %}
+
+          {% if expected_preset_mode == 'eco' %}
+            {{ states('number.thermostat_salon_appart_3_preset_eco_temp') | float(none) }}
+          {% elif expected_preset_mode == 'comfort' %}
+            {{ states('number.thermostat_salon_appart_3_preset_comfort_temp') | float(none) }}
+          {% else %}
+            {{ none }}
+          {% endif %}
+
+      - name: "Apartment 3 - Effective cool target temp"
+        unique_id: apartment_3_effective_cool_target_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: >-
+          {% set expected_preset_mode = states('sensor.apartment_3_expected_preset_mode') %}
+
+          {% if expected_preset_mode == 'eco' %}
+            {{ states('number.thermostat_salon_appart_3_preset_eco_ac_temp') | float(none) }}
+          {% elif expected_preset_mode == 'comfort' %}
+            {{ states('number.thermostat_salon_appart_3_preset_comfort_ac_temp') | float(none) }}
+          {% else %}
+            {{ none }}
+          {% endif %}
+
+  # ==========================================================
+  # Bloc 2
+  # Demandes thermiques séparées
+  #
+  # Doctrine :
+  # - heat_demand_present et cool_demand_present se basent sur
+  #   les targets demand_*
+  # - les ouvrants ne changent donc plus la demande thermique
+  # ==========================================================
+  - binary_sensor:
+
+      - name: "Apartment 3 - Heat demand present"
+        unique_id: apartment_3_heat_demand_present
+        state: >-
+          {% set room_temp = states('sensor.appart_3_capteur_temperature_salon_temperature') | float(none) %}
+          {% set heat_target = states('sensor.apartment_3_demand_heat_target_temp') | float(none) %}
+          {{
+            room_temp is not none
+            and heat_target is not none
+            and room_temp < (heat_target - 1.0)
+          }}
+
+      - name: "Apartment 3 - Cool demand present"
+        unique_id: apartment_3_cool_demand_present
+        state: >-
+          {% set room_temp = states('sensor.appart_3_capteur_temperature_salon_temperature') | float(none) %}
+          {% set cool_target = states('sensor.apartment_3_demand_cool_target_temp') | float(none) %}
+          {{
+            room_temp is not none
+            and cool_target is not none
+            and room_temp > (cool_target + 1.0)
+          }}
+
+      - name: "Apartment 3 - Thermal demand present"
+        unique_id: apartment_3_thermal_demand_present
+        state: >-
+          {{
+            is_state('binary_sensor.apartment_3_heat_demand_present', 'on')
+            or
+            is_state('binary_sensor.apartment_3_cool_demand_present', 'on')
+          }}
+
+      - name: "Apartment 3 - Heat cool conflict present"
+        unique_id: apartment_3_heat_cool_conflict_present
+        state: >-
+          {{
+            is_state('binary_sensor.apartment_3_heat_demand_present', 'on')
+            and
+            is_state('binary_sensor.apartment_3_cool_demand_present', 'on')
+          }}
+
+  # ==========================================================
+  # Bloc 3
+  # Résolution finale
+  #
+  # Priorité :
+  # - demande claire
+  # - dernier mode résolu stable
+  # - météo extérieure
+  # - none
+  #
+  # Important :
+  # - le conflit heat/cool n'est plus une zone grise
+  # - resolved_reference_target_temp suit le mode résolu final
+  #   mais avec la target effective correspondante
+  # ==========================================================
+  - sensor:
+
+      - name: "Apartment 3 - Resolved reference HVAC mode"
+        unique_id: apartment_3_resolved_reference_hvac_mode
+        state: >-
+          {% set heat_demand_present = is_state('binary_sensor.apartment_3_heat_demand_present', 'on') %}
+          {% set cool_demand_present = is_state('binary_sensor.apartment_3_cool_demand_present', 'on') %}
+          {% set heat_cool_conflict_present = is_state('binary_sensor.apartment_3_heat_cool_conflict_present', 'on') %}
+          {% set last_stable_mode = states('input_select.apartment_3_last_stable_resolved_hvac_mode') %}
+          {% set outdoor_temperature = states('sensor.temperature_exterieure_meteo_maison') | float(none) %}
+
+          {% if heat_demand_present and not cool_demand_present %}
+            heat
+          {% elif cool_demand_present and not heat_demand_present %}
+            cool
+          {% elif heat_cool_conflict_present and last_stable_mode in ['heat', 'cool'] %}
+            {{ last_stable_mode }}
+          {% elif heat_cool_conflict_present and outdoor_temperature is not none and outdoor_temperature <= 16 %}
+            heat
+          {% elif heat_cool_conflict_present and outdoor_temperature is not none and outdoor_temperature >= 24 %}
+            cool
+          {% elif not heat_demand_present and not cool_demand_present and outdoor_temperature is not none and outdoor_temperature <= 16 %}
+            heat
+          {% elif not heat_demand_present and not cool_demand_present and outdoor_temperature is not none and outdoor_temperature >= 24 %}
+            cool
+          {% else %}
+            none
+          {% endif %}
+
+      - name: "Apartment 3 - Resolved reference target temp"
+        unique_id: apartment_3_resolved_reference_target_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: >-
+          {% set resolved_mode = states('sensor.apartment_3_resolved_reference_hvac_mode') %}
+          {% set heat_target = states('sensor.apartment_3_effective_heat_target_temp') | float(none) %}
+          {% set cool_target = states('sensor.apartment_3_effective_cool_target_temp') | float(none) %}
+
+          {% if resolved_mode == 'heat' and heat_target is not none %}
+            {{ heat_target }}
+          {% elif resolved_mode == 'cool' and cool_target is not none %}
+            {{ cool_target }}
+          {% else %}
+            {{ none }}
+          {% endif %}

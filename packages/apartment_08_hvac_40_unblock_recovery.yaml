@@ -1,0 +1,201 @@
+automation:
+
+  # ==========================================================
+  # Déblocage - Retour à état exploitable après blocked_non_exploitable
+  #
+  # Rôle :
+  # - détecter que la chaîne vTherm / clim réelle redevient exploitable
+  # - uniquement pendant que blocked_non_exploitable est actif
+  # - lever explicitement stop_owner
+  # - relancer le script central
+  #
+  # Important :
+  # - on n'appelle PAS directement le worker
+  # - on ne déclenche que quand la situation redevient exploitable
+  # - on ajoute une petite stabilisation pour éviter un déblocage
+  #   trop nerveux si une intégration remonte de façon instable
+  # ==========================================================
+  - id: apartment_8_return_to_exploitable_after_blocked_non_exploitable
+    alias: "Apartment 8 - Return to exploitable after blocked_non_exploitable"
+    mode: restart
+
+    triggers:
+      - trigger: template
+        value_template: >
+          {% set invalid_states = ['unknown', 'unavailable', 'none', ''] %}
+          {{
+            is_state('input_select.apartment_8_clim_stop_owner', 'blocked_non_exploitable')
+            and is_state('input_boolean.apartment_8_thermo_salon_ha_cmd_in_progress', 'off')
+            and states('climate.thermostat_salon_appart_8') not in invalid_states
+            and states('climate.clim_appart_8') not in invalid_states
+          }}
+        for: "00:01:00"
+
+    actions:
+      # On repart sur une base propre
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_reprise_clim_pending
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.apartment_8_reprise_clim_retry_count
+        data:
+          value: 0
+
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_watchdog_first_pass_armed
+
+      # On lève explicitement le blocage technique
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.apartment_8_clim_stop_owner
+        data:
+          option: "none"
+
+      # Recalcul central complet
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Déblocage - Sortie de blocked_retry_limit
+  #
+  # Rôle :
+  # - permettre une nouvelle tentative propre après un blocage
+  #   dû à trop de retries
+  # - remettre les compteurs / drapeaux sur une base propre
+  # - lever explicitement stop_owner
+  # - relancer le script central
+  #
+  # Important :
+  # - on n'appelle PAS directement le worker
+  # - si le problème persiste, le script central puis le worker
+  #   reposeront éventuellement le blocage plus tard
+  #
+  # Note :
+  # - ce déblocage a volontairement des triggers plus riches que
+  #   la surveillance thermique rapide, car cette dernière est
+  #   neutralisée tant que stop_owner != none
+  # - on écoute ici davantage la couche template métier
+  #   pour détecter qu'un nouveau contexte mérite une tentative
+  # ==========================================================
+  - id: apartment_8_unblock_after_blocked_retry_limit
+    alias: "Apartment 8 - Unblock after blocked_retry_limit"
+    mode: restart
+
+    triggers:
+      # ------------------------------------------------------
+      # Changement de contexte HVAC principal
+      # ------------------------------------------------------
+      - trigger: state
+        entity_id: climate.thermostat_salon_appart_8
+        to: null
+        id: vtherm_hvac_mode_changed
+
+      - trigger: state
+        entity_id: climate.clim_appart_8
+        to: null
+        id: real_clim_hvac_mode_changed
+
+      - trigger: state
+        entity_id: climate.thermostat_salon_appart_8
+        attribute: temperature
+        id: salon_target_temp_changed
+
+      - trigger: state
+        entity_id: sensor.appart_8_capteur_temperature_salon_temperature
+        to: null
+        id: room_temp_changed
+
+      # ------------------------------------------------------
+      # Changement des nombres de preset métier
+      # ------------------------------------------------------
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_8_preset_comfort_temp
+        id: heat_comfort_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_8_preset_eco_temp
+        id: heat_eco_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_8_preset_comfort_ac_temp
+        id: cool_comfort_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_8_preset_eco_ac_temp
+        id: cool_eco_target_changed
+
+      # ------------------------------------------------------
+      # Changement direct de la couche template métier
+      # ------------------------------------------------------
+      - trigger: state
+        entity_id: sensor.apartment_8_expected_preset_mode
+        id: expected_preset_mode_changed
+
+      - trigger: state
+        entity_id: sensor.apartment_8_resolved_reference_hvac_mode
+        id: resolved_reference_hvac_mode_changed
+
+      - trigger: state
+        entity_id: sensor.apartment_8_resolved_reference_target_temp
+        id: resolved_reference_target_temp_changed
+
+      - trigger: state
+        entity_id: binary_sensor.apartment_8_thermal_demand_present
+        id: thermal_demand_present_changed
+
+      # ------------------------------------------------------
+      # Filet de sécurité périodique
+      # ------------------------------------------------------
+      - trigger: time_pattern
+        minutes: "/15"
+        id: periodic_check
+
+    conditions:
+      # On ne s'intéresse qu'au cas où ce blocage est actif
+      - condition: state
+        entity_id: input_select.apartment_8_clim_stop_owner
+        state: "blocked_retry_limit"
+
+      # On évite de relancer pendant qu'une commande HA est en cours
+      - condition: state
+        entity_id: input_boolean.apartment_8_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      # La chaîne vTherm / clim réelle doit être exploitable
+      - condition: template
+        value_template: >
+          {% set invalid_states = ['unknown', 'unavailable', 'none', ''] %}
+          {% set vtherm_mode = states('climate.thermostat_salon_appart_8') %}
+          {% set real_clim_mode = states('climate.clim_appart_8') %}
+          {{
+            vtherm_mode not in invalid_states
+            and real_clim_mode not in invalid_states
+          }}
+    actions:
+      # On repart sur une base propre
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_reprise_clim_pending
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.apartment_8_reprise_clim_retry_count
+        data:
+          value: 0
+
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_watchdog_first_pass_armed
+
+      # On lève explicitement le blocage
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.apartment_8_clim_stop_owner
+        data:
+          option: "none"
+
+      # Recalcul central complet
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker

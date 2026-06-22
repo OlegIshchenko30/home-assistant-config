@@ -1,0 +1,183 @@
+automation:
+
+  # ==========================================================
+  # ALERTE GLOBALE - Batterie faible (binary_sensor *_battery_low)
+  #
+  # Rôle :
+  # - alerter si un capteur *_battery_low passe de OFF à ON
+  # - confirmer pendant 2 minutes pour éviter les faux positifs
+  #
+  # Important :
+  # - la liste de triggers doit rester alignée avec
+  #   group.watchlist_battery_low_all
+  # - les futures entités restent en commentaire tant qu'elles
+  #   n'existent pas réellement dans l'instance
+  # ==========================================================
+  - id: global_alerte_batterie_faible
+    alias: "Global - Alerte batterie faible"
+    mode: queued
+    max: 50
+
+    triggers:
+      - alias: "Battery low OFF -> ON (2 min)"
+        trigger: state
+        entity_id:
+
+          # --- Appart 1
+          - binary_sensor.appart_1_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_1_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_1_detecteur_de_fumee_battery_low
+
+          # --- Appart 2
+          - binary_sensor.appart_2_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_2_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_2_detecteur_de_fumee_battery_low
+
+          # --- Appart 3
+          - binary_sensor.appart_3_capteur_d_ouverture_fenetre_chambre_battery_low
+          - binary_sensor.appart_3_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_3_detecteur_de_fumee_battery_low
+
+          # --- Appart 4
+          - binary_sensor.appart_4_capteur_d_ouverture_porte_entree_battery_low
+          - binary_sensor.appart_4_capteur_d_ouverture_fenetre_chambre_battery_low
+          # - binary_sensor.appart_4_detecteur_de_fumee_battery_low
+
+          # --- Appart 5
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_chambre_battery_low
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_5_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_5_detecteur_de_fumee_battery_low
+
+          # --- Appart 6
+          - binary_sensor.appart_6_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_6_capteur_d_ouverture_fenetre_toit_battery_low
+          - binary_sensor.appart_6_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_6_detecteur_de_fumee_battery_low
+
+          # --- Appart 7
+          - binary_sensor.appart_7_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_7_capteur_d_ouverture_fenetre_toit_battery_low
+          - binary_sensor.appart_7_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_7_detecteur_de_fumee_battery_low
+
+          # --- Appart 8
+          - binary_sensor.appart_8_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_8_capteur_d_ouverture_fenetre_toit_battery_low
+          - binary_sensor.appart_8_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_8_detecteur_de_fumee_battery_low
+
+          # --- Appart 9
+          # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_battery_low
+          - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_battery_low
+          - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_battery_low
+          # - binary_sensor.appart_9_detecteur_de_fumee_battery_low
+
+          # --- Appart 10
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_chambre_battery_low
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_droite_battery_low
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_gauche_battery_low
+          - binary_sensor.appart_10_capteur_d_ouverture_porte_entree_battery_low
+          # - binary_sensor.appart_10_detecteur_de_fumee_battery_low
+
+        from: "off"
+        to: "on"
+        for: "00:02:00"
+
+    actions:
+      - alias: "1/ Préparer les infos"
+        variables:
+          capteur: "{{ state_attr(trigger.entity_id, 'friendly_name') or 'Capteur inconnu' }}"
+          appart: >-
+            {% set m = trigger.entity_id | regex_findall('appart_(\\d+)') %}
+            {% if m | length > 0 %}
+              Appart {{ m[0] }}
+            {% else %}
+              Appart (inconnu)
+            {% endif %}
+
+      - alias: "2/ Envoyer l'alerte"
+        action: script.alerte_globale_phone_telegram_topic
+        data:
+          title: "{{ appart }} - Batterie faible"
+          message: "{{ capteur }} : batterie faible."
+
+
+  # ==========================================================
+  # ALERTE GLOBALE - Batterie faible détecteur de fumée
+  #
+  # Rôle :
+  # - alerter si la batterie d'un détecteur de fumée passe
+  #   sous un seuil critique
+  #
+  # Important :
+  # - ici on surveille des sensors de pourcentage de batterie
+  # - les futures entités restent en commentaire tant qu'elles
+  #   n'existent pas réellement dans l'instance
+  # ==========================================================
+  - id: global_alerte_batterie_faible_detecteur_fumee
+    alias: "Global - Alerte batterie faible detecteur fumee"
+    mode: queued
+    max: 20
+
+    triggers:
+      - alias: "Batterie détecteur fumée <= 10% (10 min)"
+        trigger: numeric_state
+        entity_id:
+          # --- Appart 1
+          # - sensor.appart_1_detecteur_de_fumee_battery
+
+          # --- Appart 2
+          # - sensor.appart_2_detecteur_de_fumee_battery
+
+          # --- Appart 3
+          # - sensor.appart_3_detecteur_de_fumee_battery
+
+          # --- Appart 4
+          - sensor.appart_4_detecteur_de_fumee_battery
+
+          # --- Appart 5
+          # - sensor.appart_5_detecteur_de_fumee_battery
+
+          # --- Appart 6
+          # - sensor.appart_6_detecteur_de_fumee_battery
+
+          # --- Appart 7
+          # - sensor.appart_7_detecteur_de_fumee_battery
+
+          # --- Appart 8
+          # - sensor.appart_8_detecteur_de_fumee_battery
+
+          # --- Appart 9
+          # - sensor.appart_9_detecteur_de_fumee_battery
+
+          # --- Appart 10
+          # - sensor.appart_10_detecteur_de_fumee_battery
+        below: 10
+        for: "00:10:00"
+
+    conditions:
+      - condition: template
+        value_template: >
+          {{
+            states(trigger.entity_id) not in ['unknown', 'unavailable', 'none', '']
+          }}
+
+    actions:
+      - alias: "1/ Préparer les infos"
+        variables:
+          capteur: "{{ state_attr(trigger.entity_id, 'friendly_name') or 'Détecteur de fumée inconnu' }}"
+          batterie: "{{ states(trigger.entity_id) }}"
+          appart: >-
+            {% set m = trigger.entity_id | regex_findall('appart_(\\d+)') %}
+            {% if m | length > 0 %}
+              Appart {{ m[0] }}
+            {% else %}
+              Appart (inconnu)
+            {% endif %}
+
+      - alias: "2/ Envoyer l'alerte"
+        action: script.alerte_globale_phone_telegram_topic
+        data:
+          title: "{{ appart }} - Batterie faible"
+          message: "{{ capteur }} : batterie à {{ batterie }}%."

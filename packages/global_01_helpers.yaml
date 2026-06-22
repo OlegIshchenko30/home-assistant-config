@@ -1,0 +1,11 @@
+input_boolean:
+
+  ##############################################################################
+  # Verrou anti-spam pour l'alerte de panne Zigbee globale
+  # - OFF : aucune panne globale active
+  # - ON  : une alerte de panne globale a déjà été envoyée
+  ##############################################################################
+  zigbee_panne_globale_active:
+    name: "Zigbee panne globale active"
+    icon: mdi:zigbee
+    initial: false

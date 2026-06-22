@@ -1,0 +1,11 @@
+template:
+  - sensor:
+      - name: "Température extérieure (météo maison)"
+        unique_id: temp_ext_meteo_maison
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {{ state_attr('weather.forecast_maison', 'temperature') | float }}
+        availability: >
+          {{ state_attr('weather.forecast_maison', 'temperature') is not none }}

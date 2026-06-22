@@ -1,0 +1,234 @@
+automation:
+
+  # ==========================================================
+  # FAILSAFE - cmd_in_progress bloqué
+  #
+  # Rôle :
+  # - si le tag HA cmd_in_progress reste à ON trop longtemps,
+  #   on le libère pour éviter de figer toute l'architecture
+  # - on nettoie aussi les états transitoires d'orchestration
+  # - puis on relance le script central pour re-normaliser
+  #
+  # Important :
+  # - cette automation ne pilote pas directement le HVAC
+  # - elle ne change pas stop_owner elle-même
+  # - elle remet juste le système dans un état exploitable
+  # ==========================================================
+  - id: apartment_8_failsafe_cmd_in_progress_stuck
+    alias: "Apartment 8 - Failsafe cmd_in_progress stuck"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.apartment_8_thermo_salon_ha_cmd_in_progress
+        to: "on"
+        for: "00:03:00"
+
+    actions:
+      # Libère le tag bloqué
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_thermo_salon_ha_cmd_in_progress
+
+      # Nettoyage explicite des états transitoires
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_reprise_clim_pending
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.apartment_8_reprise_clim_retry_count
+        data:
+          value: 0
+
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_8_watchdog_first_pass_armed
+
+      # Recalcul central complet
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # STARTUP - Initialisation / re-normalisation au démarrage
+  #
+  # Rôle :
+  # - mettre temporairement en retrait les automations HVAC
+  #   Apartment 8 pendant la remontée des intégrations
+  # - nettoyer uniquement l'état transitoire d'orchestration
+  # - attendre intelligemment que la chaîne principale
+  #   (vTherm salon + clim réelle) soit remontée, ou timeout
+  # - réconcilier certains faits bruts si nécessaire
+  # - réactiver les automations HVAC
+  # - recalculer proprement stop_owner via le script central
+  #
+  # Important :
+  # - on ne bloque PAS tout Home Assistant, seulement la
+  #   famille HVAC Apartment 8
+  # - on ne force PAS stop_owner à none
+  # - on ne touche PAS aux faits bruts persistants sauf
+  #   réconciliation explicite après remontée
+  # ==========================================================
+  - id: apartment_8_init_stop_owner_on_startup
+    alias: "Apartment 8 - Init stop owner on startup"
+    mode: single
+
+    triggers:
+      - trigger: homeassistant
+        event: start
+
+    actions:
+      # ------------------------------------------------------
+      # Mettre temporairement en retrait la famille HVAC locale
+      # ------------------------------------------------------
+      - action: automation.turn_off
+        target:
+          entity_id:
+            - automation.apartment_8_detect_manual_ac_stop
+            - automation.apartment_8_exit_manual_mode_if_ac_restarts
+            - automation.apartment_8_end_manual_mode_after_4h
+            - automation.apartment_8_long_opening_on
+            - automation.apartment_8_long_opening_off
+            - automation.apartment_8_target_temperature_reached_off
+            - automation.apartment_8_end_target_temperature_lock
+            - automation.apartment_8_anti_restart_during_target_temperature_lock
+            - automation.apartment_8_fast_watch_real_ac_anti_remote
+            - automation.apartment_8_fast_watch_temperature_gap_restart_ac
+            - automation.apartment_8_fast_watch_opening_open_30s
+            - automation.apartment_8_fast_watch_all_openings_closed_30s
+            - automation.apartment_8_watchdog_vtherm_ac_coherence
+            - automation.apartment_8_store_last_stable_resolved_hvac_mode
+            - automation.apartment_8_return_to_exploitable_after_blocked_non_exploitable
+            - automation.apartment_8_unblock_after_blocked_retry_limit
+            - automation.apartment_8_failsafe_cmd_in_progress_stuck
+            - automation.apartment_8_alert_indoor_temperature_too_low
+            - automation.apartment_8_alert_technical_ac_blockage
+
+      # ------------------------------------------------------
+      # Nettoyage explicite des états transitoires
+      # ------------------------------------------------------
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.apartment_8_thermo_salon_ha_cmd_in_progress
+            - input_boolean.apartment_8_reprise_clim_pending
+            - input_boolean.apartment_8_watchdog_first_pass_armed
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.apartment_8_reprise_clim_retry_count
+        data:
+          value: 0
+
+      # ------------------------------------------------------
+      # Petite attente initiale pour laisser les intégrations
+      # commencer à remonter
+      # ------------------------------------------------------
+      - delay: "00:00:10"
+
+      # ------------------------------------------------------
+      # Attente intelligente de la chaîne principale
+      #
+      # On attend que le vTherm salon et la clim réelle aient
+      # des états exploitables, sans bloquer indéfiniment.
+      # ------------------------------------------------------
+      - wait_template: >
+          {% set invalid_states = ['unknown', 'unavailable', 'none', ''] %}
+          {{
+            states('climate.thermostat_salon_appart_8') not in invalid_states
+            and states('climate.clim_appart_8') not in invalid_states
+          }}
+        timeout: "00:02:30"
+        continue_on_timeout: true
+
+      # ------------------------------------------------------
+      # Réconciliation légère des faits bruts après remontée
+      # ------------------------------------------------------
+
+      # Si manual_off est ON mais que le timer n'est plus actif
+      # ni paused, on considère que le hold n'est plus valide
+      # et on nettoie le fait brut.
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_8_clim_manuel_control
+                state: "on"
+              - condition: template
+                value_template: >
+                  {{
+                    states('timer.apartment_8_clim_manual_off_hold')
+                    not in ['active', 'paused']
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_8_clim_manuel_control
+
+      # Si target_reached_lock est ON mais que le timer n'est plus
+      # actif ni paused, on considère que le lock n'est plus valide
+      # et on nettoie le fait brut.
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+                state: "on"
+              - condition: template
+                value_template: >
+                  {{
+                    states('timer.apartment_8_clim_lock_temperature_cible_atteinte')
+                    not in ['active', 'paused']
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_8_lock_temperature_cible_atteinte
+
+      # Si opening_long est ON mais que tous les ouvrants sont
+      # actuellement fermés, on nettoie le fait brut.
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.apartment_8_ouverture_sup_a_5min
+                state: "on"
+              - condition: template
+                value_template: >
+                  {{
+                    is_state('binary_sensor.appart_8_capteur_d_ouverture_porte_entree_contact', 'off')
+                    and is_state('binary_sensor.appart_8_capteur_d_ouverture_fenetre_toit_contact', 'off')
+                    and is_state('binary_sensor.appart_8_capteur_d_ouverture_fenetre_salon_contact', 'off')
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.apartment_8_ouverture_sup_a_5min
+
+      # ------------------------------------------------------
+      # Réactiver la famille HVAC locale
+      # ------------------------------------------------------
+      - action: automation.turn_on
+        target:
+          entity_id:
+            - automation.apartment_8_detect_manual_ac_stop
+            - automation.apartment_8_exit_manual_mode_if_ac_restarts
+            - automation.apartment_8_end_manual_mode_after_4h
+            - automation.apartment_8_long_opening_on
+            - automation.apartment_8_long_opening_off
+            - automation.apartment_8_target_temperature_reached_off
+            - automation.apartment_8_end_target_temperature_lock
+            - automation.apartment_8_anti_restart_during_target_temperature_lock
+            - automation.apartment_8_fast_watch_real_ac_anti_remote
+            - automation.apartment_8_fast_watch_temperature_gap_restart_ac
+            - automation.apartment_8_fast_watch_opening_open_30s
+            - automation.apartment_8_fast_watch_all_openings_closed_30s
+            - automation.apartment_8_watchdog_vtherm_ac_coherence
+            - automation.apartment_8_store_last_stable_resolved_hvac_mode
+            - automation.apartment_8_return_to_exploitable_after_blocked_non_exploitable
+            - automation.apartment_8_unblock_after_blocked_retry_limit
+            - automation.apartment_8_failsafe_cmd_in_progress_stuck
+            - automation.apartment_8_alert_indoor_temperature_too_low
+            - automation.apartment_8_alert_technical_ac_blockage
+
+      # ------------------------------------------------------
+      # Re-normalisation centrale unique
+      # ------------------------------------------------------
+      - action: script.apartment_8_reevaluate_stop_owner_and_maybe_run_worker

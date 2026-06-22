@@ -1,0 +1,139 @@
+automation:
+
+  # ==========================================================
+  # ALERTE GLOBALE - Zigbee offline précis
+  #
+  # Rôle :
+  # - alerter quand une entité Zigbee précise devient
+  #   unknown / unavailable pendant 10 minutes
+  # - ne pas spammer si une panne Zigbee globale est en cours
+  #
+  # Important :
+  # - si >= 6 entités sont offline au global, on laisse
+  #   l'automation de panne Zigbee globale prendre le relais
+  # - la liste de triggers doit rester alignée avec
+  #   group.watchlist_zigbee_all
+  # ==========================================================
+  - id: global_alerte_zigbee_offline_precise
+    alias: "Global - Alerte Zigbee offline precise"
+    mode: parallel
+    max: 20
+
+    triggers:
+      - alias: "Une entité devient unknown/unavailable pendant 10 min"
+        trigger: state
+        entity_id:
+
+          # --- Appart 1
+          - binary_sensor.appart_1_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_1_capteur_d_ouverture_fenetre_salon_contact
+          - sensor.appart_1_capteur_temperature_salon_temperature
+
+          # --- Appart 2
+          - binary_sensor.appart_2_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_2_capteur_d_ouverture_fenetre_salon_contact
+          - sensor.appart_2_capteur_temperature_salon_temperature
+
+          # --- Appart 3
+          - binary_sensor.appart_3_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_3_capteur_d_ouverture_fenetre_chambre_contact
+          - sensor.appart_3_capteur_temperature_salon_temperature
+          - sensor.appart_3_capteur_temperature_chambre_temperature
+          - switch.appart_3_module_radiateur_chambre
+          - switch.appart_3_module_radiateur_salle_de_bain
+
+          # --- Appart 4
+          - binary_sensor.appart_4_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_4_capteur_d_ouverture_fenetre_chambre_contact
+          - sensor.appart_4_capteur_temperature_salon_temperature
+          - sensor.appart_4_capteur_temperature_chambre_temperature
+          - switch.appart_4_module_radiateur_chambre
+          - switch.appart_4_module_radiateur_salle_de_bain
+          - binary_sensor.appart_4_detecteur_de_fumee_smoke
+          - sensor.appart_4_detecteur_de_fumee_battery
+
+          # --- Appart 5
+          - binary_sensor.appart_5_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_salon_contact
+          - sensor.appart_5_capteur_temperature_salon_temperature
+          - sensor.appart_5_capteur_temperature_chambre_temperature
+          - switch.appart_5_module_radiateur_chambre
+          - switch.appart_5_module_radiateur_salle_de_bain
+
+          # --- Appart 6
+          - binary_sensor.appart_6_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_6_capteur_d_ouverture_fenetre_salon_contact
+          - binary_sensor.appart_6_capteur_d_ouverture_fenetre_toit_contact
+          - sensor.appart_6_capteur_temperature_salon_temperature
+          - switch.appart_6_module_radiateur_salle_de_bain
+
+          # --- Appart 7
+          - binary_sensor.appart_7_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_7_capteur_d_ouverture_fenetre_salon_contact
+          - binary_sensor.appart_7_capteur_d_ouverture_fenetre_toit_contact
+          - sensor.appart_7_capteur_temperature_salon_temperature
+          - switch.appart_7_module_radiateur_salle_de_bain
+
+          # --- Appart 8
+          - binary_sensor.appart_8_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_8_capteur_d_ouverture_fenetre_salon_contact
+          - binary_sensor.appart_8_capteur_d_ouverture_fenetre_toit_contact
+          - sensor.appart_8_capteur_temperature_salon_temperature
+          - switch.appart_8_module_radiateur_salle_de_bain
+
+          # --- Appart 9
+          # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact
+          - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact
+          - sensor.appart_9_capteur_temperature_salon_temperature
+          - switch.appart_9_module_radiateur_salle_de_bain
+
+          # --- Appart 10
+          - binary_sensor.appart_10_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_gauche_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_droite_contact
+          - sensor.appart_10_capteur_temperature_salon_temperature
+          - sensor.appart_10_capteur_temperature_chambre_temperature
+          - switch.appart_10_module_radiateur_chambre
+          - switch.appart_10_module_radiateur_salle_de_bain
+
+        to:
+          - "unknown"
+          - "unavailable"
+        for: "00:10:00"
+
+    conditions:
+      # Anti-spam global :
+      # si >= 6 entités sont offline au total,
+      # c'est l'alerte panne Zigbee globale qui prendra le relais
+      - condition: template
+        value_template: >
+          {{
+            (
+              expand('group.watchlist_zigbee_all')
+              | selectattr('state', 'in', ['unavailable', 'unknown'])
+              | list
+              | count
+            ) < 6
+          }}
+
+    actions:
+      - alias: "1/ Préparer les infos"
+        variables:
+          capteur: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.to_state.name or 'Capteur inconnu' }}"
+          etat: "{{ trigger.to_state.state if trigger.to_state is not none else 'unknown' }}"
+          appart: >-
+            {% set m = trigger.entity_id | regex_findall('appart_(\\d+)') %}
+            {% if m | length > 0 %}
+              Appart {{ m[0] }}
+            {% else %}
+              Appart (inconnu)
+            {% endif %}
+
+      - alias: "2/ Envoyer l'alerte"
+        action: script.alerte_globale_phone_telegram_topic
+        data:
+          title: "{{ appart }} - Capteur offline"
+          message: "{{ capteur }} est {{ etat }} depuis 10 minutes."

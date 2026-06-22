@@ -1,0 +1,93 @@
+input_select:
+
+  # Arbitre unique des causes d'arrêt
+  apartment_10_clim_stop_owner:
+    name: "Apartment 10 - AC stop owner"
+    icon: mdi:account-lock
+    options:
+      - "none"
+      - "manual_off"
+      - "opening_long"
+      - "target_reached_lock"
+      - "blocked_non_exploitable"
+      - "blocked_retry_limit"
+    initial: "none"
+
+  # Dernier mode résolu stable et non ambigu.
+  # Sert uniquement comme priorité secondaire en cas de conflit
+  # heat/cool dans la couche template métier.
+  apartment_10_last_stable_resolved_hvac_mode:
+    name: "Apartment 10 - Last stable resolved HVAC mode"
+    icon: mdi:cached
+    options:
+      - "none"
+      - "heat"
+      - "cool"
+    initial: "none"
+
+
+input_boolean:
+
+  # Une reprise de clim est demandée
+  apartment_10_reprise_clim_pending:
+    name: "Apartment 10 - AC rebalance pending"
+    icon: mdi:autorenew
+    initial: false
+
+  # Mémoire du premier passage watchdog
+  apartment_10_watchdog_first_pass_armed:
+    name: "Apartment 10 - Watchdog first pass armed"
+    icon: mdi:shield-half-full
+    initial: false
+
+  # La clim a été coupée manuellement (télécommande / action externe)
+  apartment_10_clim_manuel_control:
+    name: "Apartment 10 - Manual AC control"
+    icon: mdi:remote
+    initial: false
+
+  # Au moins un ouvrant est resté ouvert assez longtemps pour prendre ownership
+  apartment_10_ouverture_sup_a_5min:
+    name: "Apartment 10 - Opening over 5 min"
+    icon: mdi:door-open
+    initial: false
+
+  # Lock actif après atteinte de la température cible
+  apartment_10_lock_temperature_cible_atteinte:
+    name: "Apartment 10 - Target temperature reached lock"
+    icon: mdi:thermometer-check
+    initial: false
+
+  # Tag de protection : Home Assistant est en train d'envoyer une commande
+  apartment_10_thermo_salon_ha_cmd_in_progress:
+    name: "Apartment 10 - Living room thermostat HA cmd in progress"
+    icon: mdi:progress-clock
+    initial: false
+
+
+input_number:
+
+  # Nombre de tentatives de reprise effectuées par le worker
+  apartment_10_reprise_clim_retry_count:
+    name: "Apartment 10 - AC rebalance retry count"
+    icon: mdi:counter
+    min: 0
+    max: 10
+    step: 1
+    mode: box
+    initial: 0
+
+
+timer:
+
+  # Maintien du owner manual_off pendant 4 heures
+  apartment_10_clim_manual_off_hold:
+    name: "Apartment 10 - Manual AC off hold"
+    duration: "04:00:00"
+    restore: true
+
+  # Lock temporaire après atteinte de la température cible
+  apartment_10_clim_lock_temperature_cible_atteinte:
+    name: "Apartment 10 - Target temperature reached lock timer"
+    duration: "01:00:00"
+    restore: true

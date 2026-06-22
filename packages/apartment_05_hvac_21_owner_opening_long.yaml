@@ -1,0 +1,103 @@
+automation:
+
+  # ==========================================================
+  # Owner opening_long - Passage à ON après 5 minutes d'ouverture
+  #
+  # Rôle :
+  # - si un ouvrant reste ouvert 5 minutes, on pose le fait brut
+  #   ouverture_sup_a_5min = on
+  # - puis on appelle le script central
+  #
+  # Important :
+  # - cette automation ne pilote pas directement la clim
+  # - elle ne modifie pas stop_owner elle-même
+  # - le script central appliquera l'état OFF homogène si nécessaire
+  # ==========================================================
+  - id: apartment_5_long_opening_on
+    alias: "Apartment 5 - Long opening ON"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.appart_5_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_salon_contact
+        to: "on"
+        for: "00:05:00"
+
+    conditions:
+      # On évite simplement un retrigger inutile si le fait brut est déjà ON
+      - condition: state
+        entity_id: input_boolean.apartment_5_ouverture_sup_a_5min
+        state: "off"
+
+    actions:
+      # Pose le fait brut "opening_long"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_5_ouverture_sup_a_5min
+
+      # Recalcul central
+      - action: script.apartment_5_reevaluate_stop_owner_and_maybe_run_worker
+
+
+  # ==========================================================
+  # Owner opening_long - Passage à OFF quand la situation
+  # d'ouverture longue n'est plus confirmée
+  #
+  # Rôle :
+  # - si le owner opening_long est actif
+  # - et qu'au moins un ouvrant se referme
+  # - on attend une courte stabilisation
+  # - puis on retire le fait brut ouverture_sup_a_5min
+  #   si aucun capteur exploitable n'est encore ouvert
+  # - puis on appelle le script central
+  #
+  # Important :
+  # - on ignore les capteurs indisponibles / incohérents
+  # - un capteur exploitable à ON reste bloquant
+  # - la décision finale repose sur "aucun capteur exploitable ouvert"
+  # ==========================================================
+  - id: apartment_5_long_opening_off
+    alias: "Apartment 5 - Long opening OFF"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.appart_5_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_5_capteur_d_ouverture_fenetre_salon_contact
+        to: "off"
+
+    conditions:
+      # Le owner opening_long doit être actif
+      - condition: state
+        entity_id: input_boolean.apartment_5_ouverture_sup_a_5min
+        state: "on"
+
+    actions:
+      # Petite stabilisation pour éviter une libération trop nerveuse
+      - delay: "00:00:30"
+
+      # On ne libère que s'il n'existe plus aucun capteur exploitable ouvert
+      - condition: template
+        value_template: >
+          {% set invalid_states = ['unknown', 'unavailable', 'none', ''] %}
+          {% set opening_states = [
+            states('binary_sensor.appart_5_capteur_d_ouverture_porte_entree_contact'),
+            states('binary_sensor.appart_5_capteur_d_ouverture_fenetre_chambre_contact'),
+            states('binary_sensor.appart_5_capteur_d_ouverture_fenetre_salon_contact'),
+          ] %}
+          {{
+            (opening_states | reject('in', invalid_states) | select('equalto', 'on') | list | count) == 0
+          }}
+
+      # Retire le fait brut "opening_long"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.apartment_5_ouverture_sup_a_5min
+
+      # Recalcul central
+      - action: script.apartment_5_reevaluate_stop_owner_and_maybe_run_worker

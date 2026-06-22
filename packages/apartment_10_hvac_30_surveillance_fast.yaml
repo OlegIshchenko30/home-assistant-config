@@ -1,0 +1,284 @@
+automation:
+
+  # ==========================================================
+  # Surveillance rapide - Anti-télécommande clim réelle
+  #
+  # Rôle :
+  # - détecter un changement "utile" sur la clim réelle
+  #   (mode HVAC ou température cible)
+  # - demander un rééquilibrage rapide
+  # - appeler le worker
+  #
+  # Important :
+  # - ne change jamais stop_owner
+  # - n'appelle jamais le script métier directement
+  # - ignore les changements provoqués par HA si cmd_in_progress = ON
+  #
+  # Note :
+  # - pour le trigger HVAC, on utilise to: null afin de ne capter
+  #   que les vrais changements d'état et pas les simples changements
+  #   d'attributs de l'entité climate
+  # ==========================================================
+  - id: apartment_10_fast_watch_real_ac_anti_remote
+    alias: "Apartment 10 - Fast watch real AC anti-remote"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: climate.climatiseur_appart_10
+        to: null
+        id: real_clim_hvac_mode_changed
+
+      - trigger: state
+        entity_id: climate.climatiseur_appart_10
+        attribute: temperature
+        id: real_clim_temperature_changed
+
+    conditions:
+      # Ignore les changements envoyés par HA
+      - condition: state
+        entity_id: input_boolean.apartment_10_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      # Ne lance pas de surveillance rapide si un owner bloque déjà
+      - condition: state
+        entity_id: input_select.apartment_10_clim_stop_owner
+        state: "none"
+
+      # OFF must be handled by the manual stop owner flow, not by fast anti-remote recovery
+      - condition: template
+        value_template: >-
+          {{
+            trigger.id != 'real_clim_hvac_mode_changed'
+            or (
+              trigger.to_state is not none
+              and trigger.to_state.state not in ['off', 'unknown', 'unavailable', 'none', '']
+            )
+          }}
+
+    actions:
+      - delay: "00:00:10"
+
+      # Re-check after a short stabilization window to avoid racing the manual stop owner flow
+      - condition: state
+        entity_id: input_boolean.apartment_10_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      - condition: state
+        entity_id: input_select.apartment_10_clim_stop_owner
+        state: "none"
+
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_10_reprise_clim_pending
+
+      - action: script.apartment_10_hvac_rebalance_worker
+
+
+  # ==========================================================
+  # Surveillance rapide - Ecart de température / relance clim
+  #
+  # Rôle :
+  # - relancer rapidement si une vraie demande thermique existe
+  # - réagir aux changements de température pièce
+  # - réagir aux changements de mode vTherm
+  # - réagir aux changements des nombres de preset
+  #
+  # Important :
+  # - ne change jamais stop_owner
+  # - appelle le worker, pas le script central
+  # - les triggers réveillent
+  # - la condition métier décide
+  # - l'action n'est lancée QUE si thermal_demand_present est vraie
+  # ==========================================================
+  - id: apartment_10_fast_watch_temperature_gap_restart_ac
+    alias: "Apartment 10 - Fast watch temperature gap restart AC"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: sensor.appart_10_capteur_temperature_salon_temperature
+        to: null
+        id: room_temp_changed
+
+      - trigger: state
+        entity_id: climate.thermostat_salon_appart_10
+        to: null
+        id: salon_hvac_mode_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_10_preset_comfort_temp
+        id: heat_comfort_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_10_preset_eco_temp
+        id: heat_eco_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_10_preset_comfort_ac_temp
+        id: cool_comfort_target_changed
+
+      - trigger: state
+        entity_id: number.thermostat_salon_appart_10_preset_eco_ac_temp
+        id: cool_eco_target_changed
+
+    conditions:
+      # Ignore les changements envoyés par HA
+      - condition: state
+        entity_id: input_boolean.apartment_10_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      # Ne lance pas la surveillance rapide si un owner bloque déjà
+      - condition: state
+        entity_id: input_select.apartment_10_clim_stop_owner
+        state: "none"
+
+      # Condition métier unique
+      - condition: template
+        value_template: >-
+          {% set thermal_demand_present = is_state('binary_sensor.apartment_10_thermal_demand_present', 'on') %}
+          {% set resolved_reference_hvac_mode = states('sensor.apartment_10_resolved_reference_hvac_mode') %}
+
+          {% set room_temp_trigger_ok =
+            trigger.id == 'room_temp_changed'
+            and trigger.from_state is not none
+            and trigger.to_state is not none
+            and trigger.from_state.state != trigger.to_state.state
+          %}
+
+          {% set hvac_mode_trigger_ok =
+            trigger.id == 'salon_hvac_mode_changed'
+            and trigger.from_state is not none
+            and trigger.to_state is not none
+            and trigger.from_state.state != trigger.to_state.state
+          %}
+
+          {% set preset_target_trigger_ok =
+            trigger.id in [
+              'heat_comfort_target_changed',
+              'heat_eco_target_changed',
+              'cool_comfort_target_changed',
+              'cool_eco_target_changed'
+            ]
+          %}
+
+          {{
+            (
+              room_temp_trigger_ok
+              or hvac_mode_trigger_ok
+              or preset_target_trigger_ok
+            )
+            and thermal_demand_present
+            and resolved_reference_hvac_mode in ['heat', 'cool']
+          }}
+
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_10_reprise_clim_pending
+
+      - action: script.apartment_10_hvac_rebalance_worker
+
+
+  # ==========================================================
+  # Surveillance rapide - Ouvrant ouvert 30 secondes
+  #
+  # Rôle :
+  # - si un ouvrant reste ouvert 30 s, demander un rééquilibrage
+  # - permet notamment de passer rapidement vers le preset attendu
+  #   (souvent eco quand un ouvrant est ouvert)
+  #
+  # Important :
+  # - ne change jamais stop_owner
+  # - opening_long (5 min) reste géré dans son propre fichier owner
+  # - si l'owner opening_long devient actif ensuite, le worker
+  #   s'arrêtera proprement
+  # ==========================================================
+  - id: apartment_10_fast_watch_opening_open_30s
+    alias: "Apartment 10 - Fast watch opening open 30s"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.appart_10_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_gauche_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_droite_contact
+        to: "on"
+        for: "00:00:30"
+
+    conditions:
+      # Ignore les changements envoyés par HA
+      - condition: state
+        entity_id: input_boolean.apartment_10_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      # Ne pas lancer de rééquilibrage rapide si un owner bloque déjà
+      - condition: state
+        entity_id: input_select.apartment_10_clim_stop_owner
+        state: "none"
+
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_10_reprise_clim_pending
+
+      - action: script.apartment_10_hvac_rebalance_worker
+
+
+  # ==========================================================
+  # Surveillance rapide - Tous les ouvrants fermés 30 secondes
+  #
+  # Rôle :
+  # - si tous les ouvrants sont fermés depuis 30 s, demander
+  #   un rééquilibrage rapide
+  # - permet notamment de revenir rapidement vers le preset attendu
+  #   (souvent comfort quand tout est refermé)
+  #
+  # Important :
+  # - ne change jamais stop_owner
+  # - si opening_long est encore actif, le worker s'arrêtera
+  #   proprement tant que l'owner n'est pas levé
+  # ==========================================================
+  - id: apartment_10_fast_watch_all_openings_closed_30s
+    alias: "Apartment 10 - Fast watch all openings closed 30s"
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.appart_10_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_chambre_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_gauche_contact
+          - binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_droite_contact
+        to: "off"
+        for: "00:00:30"
+
+    conditions:
+      # Ignore les changements envoyés par HA
+      - condition: state
+        entity_id: input_boolean.apartment_10_thermo_salon_ha_cmd_in_progress
+        state: "off"
+
+      # Tous les ouvrants doivent être effectivement fermés
+      - condition: template
+        value_template: >-
+          {{
+            is_state('binary_sensor.appart_10_capteur_d_ouverture_porte_entree_contact', 'off') and
+            is_state('binary_sensor.appart_10_capteur_d_ouverture_fenetre_chambre_contact', 'off') and
+            is_state('binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_gauche_contact', 'off') and
+            is_state('binary_sensor.appart_10_capteur_d_ouverture_fenetre_salon_droite_contact', 'off')
+          }}
+
+      # Ne pas lancer de rééquilibrage rapide si un owner bloque déjà
+      - condition: state
+        entity_id: input_select.apartment_10_clim_stop_owner
+        state: "none"
+
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.apartment_10_reprise_clim_pending
+
+      - action: script.apartment_10_hvac_rebalance_worker

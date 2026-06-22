@@ -1,0 +1,65 @@
+automation:
+
+  # ==========================================================
+  # Mémoire métier - Dernier mode résolu stable
+  #
+  # Rôle :
+  # - mémoriser le dernier mode résolu non ambigu (heat ou cool)
+  # - ne jamais écrire pendant un conflit heat/cool
+  # - ne jamais écrire en simple fallback météo sans demande
+  #
+  # Important :
+  # - ce n'est ni un owner, ni une surveillance rapide
+  # - c'est une mémoire métier secondaire utilisée seulement
+  #   comme priorité d'arbitrage en cas de conflit
+  # ==========================================================
+  - id: apartment_10_store_last_stable_resolved_hvac_mode
+    alias: "Apartment 10 - Store last stable resolved HVAC mode"
+    mode: single
+
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.apartment_10_heat_demand_present
+        id: heat_demand_changed
+
+      - trigger: state
+        entity_id: binary_sensor.apartment_10_cool_demand_present
+        id: cool_demand_changed
+
+      - trigger: state
+        entity_id: sensor.apartment_10_resolved_reference_hvac_mode
+        id: resolved_mode_changed
+
+    conditions:
+      # Pas de conflit heat/cool
+      - condition: state
+        entity_id: binary_sensor.apartment_10_heat_cool_conflict_present
+        state: "off"
+
+      # Une vraie demande thermique doit exister
+      - condition: state
+        entity_id: binary_sensor.apartment_10_thermal_demand_present
+        state: "on"
+
+      # Le mode résolu doit être clairement heat ou cool
+      - condition: template
+        value_template: >
+          {{
+            states('sensor.apartment_10_resolved_reference_hvac_mode') in ['heat', 'cool']
+          }}
+
+    actions:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{
+                    states('input_select.apartment_10_last_stable_resolved_hvac_mode')
+                    != states('sensor.apartment_10_resolved_reference_hvac_mode')
+                  }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.apartment_10_last_stable_resolved_hvac_mode
+                data:
+                  option: "{{ states('sensor.apartment_10_resolved_reference_hvac_mode') }}"

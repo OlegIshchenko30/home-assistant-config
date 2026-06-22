@@ -1,0 +1,88 @@
+# Ignore tout par défaut
+*
+
+# Fichiers Git / documentation
+!.gitignore
+!README.md
+
+# Fichiers YAML racine Home Assistant à versionner si tu les utilises
+!configuration.yaml
+!automations.yaml
+!scripts.yaml
+!scenes.yaml
+!customize.yaml
+!ui-lovelace.yaml
+!lovelace*.yaml
+
+# Packages Home Assistant
+!packages/
+!packages/**/
+!packages/**/*.yaml
+!packages/**/*.yml
+
+# Blueprints
+!blueprints/
+!blueprints/**/
+!blueprints/**/*.yaml
+!blueprints/**/*.yml
+
+# Themes
+!themes/
+!themes/**/
+!themes/**/*.yaml
+!themes/**/*.yml
+
+# Dashboards YAML si tu en as
+!dashboards/
+!dashboards/**/
+!dashboards/**/*.yaml
+!dashboards/**/*.yml
+
+# Documentation éventuelle
+!docs/
+!docs/**/
+!docs/**/*.md
+!docs/**/*.txt
+!docs/**/*.yaml
+!docs/**/*.yml
+
+# Secrets Home Assistant — jamais dans Git
+secrets.yaml
+**/secrets.yaml
+
+# État interne / sensible Home Assistant — jamais dans Git
+.storage/
+.cloud/
+.auth/
+
+# Base de données, logs, backups
+*.db
+*.db-*
+home-assistant.log*
+*.log
+backup/
+backups/
+*.tar
+*.tar.gz
+*.zip
+
+# Certificats / clés
+ssl/
+*.key
+*.pem
+*.crt
+*.p12
+
+# Fichiers générés / caches
+deps/
+tts/
+media/
+__pycache__/
+.pytest_cache/
+
+# Divers sensibles possibles
+known_devices.yaml
+
+
+# SSH keys
+.ssh/
