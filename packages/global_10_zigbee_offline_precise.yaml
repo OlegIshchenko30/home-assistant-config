@@ -83,7 +83,7 @@ automation:
           - switch.appart_8_module_radiateur_salle_de_bain
 
           # --- Appart 9
-          # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
+          - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact
           - sensor.appart_9_capteur_temperature_salon_temperature

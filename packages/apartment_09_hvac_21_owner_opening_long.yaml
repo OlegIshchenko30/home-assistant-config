@@ -20,6 +20,7 @@ automation:
     triggers:
       - trigger: state
         entity_id:
+          - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact
         to: "on"
@@ -64,6 +65,7 @@ automation:
     triggers:
       - trigger: state
         entity_id:
+          - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact
         to: "off"
@@ -83,6 +85,7 @@ automation:
         value_template: >
           {% set invalid_states = ['unknown', 'unavailable', 'none', ''] %}
           {% set opening_states = [
+            states('binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact'),
             states('binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact'),
             states('binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact'),
           ] %}

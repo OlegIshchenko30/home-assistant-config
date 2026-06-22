@@ -68,7 +68,7 @@ automation:
           # - binary_sensor.appart_8_detecteur_de_fumee_tamper
 
           # --- Appart 9
-          # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_tamper
+          - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_tamper
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_tamper
           - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_tamper
           # - binary_sensor.appart_9_detecteur_de_fumee_tamper

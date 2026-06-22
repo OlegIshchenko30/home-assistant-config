@@ -82,7 +82,7 @@ group:
       # - sensor.appart_8_detecteur_de_fumee_battery
 
       # --- Appart 9
-      # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
+      - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_contact
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_contact
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_contact
       - sensor.appart_9_capteur_temperature_salon_temperature
@@ -155,7 +155,7 @@ group:
       # - binary_sensor.appart_8_detecteur_de_fumee_tamper
 
       # --- Appart 9
-      # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_tamper
+      - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_tamper
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_tamper
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_tamper
       # - binary_sensor.appart_9_detecteur_de_fumee_tamper
@@ -220,7 +220,7 @@ group:
       # - binary_sensor.appart_8_detecteur_de_fumee_battery_low
 
       # --- Appart 9
-      # - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_battery_low
+      - binary_sensor.appart_9_capteur_d_ouverture_porte_entree_battery_low
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_salon_battery_low
       - binary_sensor.appart_9_capteur_d_ouverture_fenetre_toit_battery_low
       # - binary_sensor.appart_9_detecteur_de_fumee_battery_low
