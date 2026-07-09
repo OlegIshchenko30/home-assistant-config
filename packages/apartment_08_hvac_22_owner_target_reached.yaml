@@ -47,7 +47,7 @@ automation:
               (resolved_reference_hvac_mode == 'cool' and current_temp <= resolved_reference_target_temp)
             )
           }}
-        for: "00:01:00"
+        for: "00:00:30"
 
     conditions:
       # Le lock ne doit pas être déjà actif
