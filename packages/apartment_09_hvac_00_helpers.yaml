@@ -86,5 +86,5 @@ timer:
   # Lock temporaire après atteinte de la température cible
   apartment_9_clim_lock_temperature_cible_atteinte:
     name: "Apartment 9 - Target temperature reached lock timer"
-    duration: "01:00:00"
+    duration: "00:10:00"
     restore: true
